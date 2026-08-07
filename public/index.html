@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b3527">
+<title>Caja · Pádel Argonos</title>
+<link rel="icon" href="assets/argonos-icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-logo" aria-hidden="true"><img src="assets/argonos-icon.svg" alt=""></span>
+    <span class="brand-name">
+      <strong>Pádel Argonos</strong>
+      <small>Caja del club</small>
+    </span>
+  </div>
+
+  <nav class="tabs" aria-label="Secciones">
+    <button class="tab active" data-view="venta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+      Cobrar
+    </button>
+    <button class="tab" data-view="catalogo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+      Catálogo
+    </button>
+    <button class="tab" data-view="historial">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Historial
+    </button>
+  </nav>
+
+  <span id="today-summary" class="today-chip"></span>
+</header>
+
+<main>
+
+  <!-- ============ COBRAR ============ -->
+  <section id="view-venta" class="sale-layout">
+    <div class="products-panel">
+      <div class="panel-title">
+        <h2>Productos</h2>
+        <span class="hint">Toca un producto para añadirlo al ticket</span>
+      </div>
+      <div id="category-filters" class="category-filters" aria-label="Filtrar productos por categoría"></div>
+      <div id="venta-grid" class="grid"></div>
+    </div>
+
+    <aside class="ticket">
+      <div class="ticket-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg>
+        <h2>Ticket actual</h2>
+      </div>
+
+      <div id="cart-list" class="ticket-lines"></div>
+
+      <div class="ticket-foot">
+        <div class="total-row">
+          <span>Total</span>
+          <span id="cart-total">0,00 €</span>
+        </div>
+
+        <div class="pay-methods">
+          <button class="pay-btn active" id="pay-efectivo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+            Efectivo
+          </button>
+          <button class="pay-btn" id="pay-tarjeta">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+            Tarjeta
+          </button>
+        </div>
+
+        <button id="open-drawer-btn" class="open-drawer-btn" type="button">Abrir caja</button>
+
+        <div id="cash-payment" class="cash-payment">
+          <label class="field">
+            <span>Efectivo recibido (€)</span>
+            <input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Opcional">
+          </label>
+          <div class="change-row"><span>Cambio</span><strong id="cash-change">Sin calcular</strong></div>
+        </div>
+
+        <button id="checkout-btn" class="checkout-btn">
+          <span>Cobrar</span>
+          <span id="checkout-total" class="checkout-amount">0,00 €</span>
+        </button>
+        <button id="cancel-edit-btn" class="cancel-edit-btn" hidden>Cancelar edición</button>
+        <p id="checkout-msg"></p>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ============ CATÁLOGO ============ -->
+  <section id="view-catalogo" hidden>
+    <div class="card stock-entry-card">
+      <div class="panel-title">
+        <div><h2>Entradas de mercancía</h2><span class="hint">Suma al stock todo lo que recibas</span></div>
+        <button id="toggle-stock-entry" class="btn-secondary" type="button">Registrar entrada</button>
+      </div>
+      <div id="stock-entry-form" class="stock-entry-form" hidden>
+        <label class="field"><span>Producto</span><select id="entry-product"></select></label>
+        <label class="field"><span>Unidades recibidas</span><input id="entry-qty" type="number" min="1" max="999" step="1" placeholder="Ej. 24"></label>
+        <label class="field"><span>Nota opcional</span><input id="entry-note" type="text" maxlength="250" placeholder="Ej. Pedido semanal"></label>
+        <button id="save-stock-entry" class="btn-primary" type="button">Guardar entrada</button>
+      </div>
+      <div id="stock-entry-list" class="stock-entry-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">
+        <h2>Nuevo producto</h2>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span>Nombre</span>
+          <input id="new-name" type="text" placeholder="Ej. Agua 0,5L">
+        </label>
+        <label class="field">
+          <span>Categoría</span>
+          <select id="new-cat">
+            <option>Bebidas</option>
+            <option>Material deportivo</option>
+            <option>Alquileres</option>
+            <option>Otros</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Precio (€)</span>
+          <input id="new-price" type="number" step="0.10" min="0" placeholder="0,00">
+        </label>
+        <label class="field">
+          <span>Stock</span>
+          <input id="new-stock" type="number" step="1" min="0" placeholder="0">
+        </label>
+        <label class="check-field">
+          <input id="new-unlimited" type="checkbox">
+          <span>Stock infinito</span>
+        </label>
+        <button id="add-product" class="btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          Añadir
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">
+        <h2>Catálogo</h2>
+        <span class="hint">Edita nombre, precio o stock directamente; se guarda al salir del campo</span>
+      </div>
+      <div class="catalog-head catalog-cols" aria-hidden="true">
+        <span>Producto</span>
+        <span>Categoría</span>
+        <span class="th-num">Precio €</span>
+        <span class="th-num">Stock / infinito</span>
+        <span></span>
+      </div>
+      <div id="product-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ HISTORIAL ============ -->
+  <section id="view-historial" hidden>
+    <div class="card history-calendar">
+      <label class="field"><span>Consultar día</span><input id="history-date" type="date"></label>
+      <div class="selected-day-summary">
+        <span id="selected-day-label">Hoy</span>
+        <strong id="selected-day-total">0,00 €</strong>
+        <small id="selected-day-count">0 cobros</small>
+      </div>
+      <button id="history-today" class="btn-secondary" type="button">Ir a hoy</button>
+    </div>
+    <div class="stats">
+      <div class="stat-card">
+        <span class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg>
+        </span>
+        <div>
+          <p>Ventas hoy</p>
+          <strong id="stat-count">0</strong>
+        </div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+        </span>
+        <div>
+          <p>Total hoy</p>
+          <strong id="stat-total">0,00 €</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">
+        <h2 id="history-list-title">Cobros del día</h2>
+      </div>
+      <div id="sales-list"></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+<dialog id="app-dialog" class="app-dialog">
+  <form id="app-dialog-form" method="dialog">
+    <h3 id="dialog-title"></h3>
+    <p id="dialog-message"></p>
+    <input id="dialog-input" class="dialog-input" autocomplete="off">
+    <div class="dialog-actions">
+      <button id="dialog-cancel" class="btn-secondary" type="button">Cancelar</button>
+      <button id="dialog-confirm" class="dialog-confirm" type="submit">Aceptar</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

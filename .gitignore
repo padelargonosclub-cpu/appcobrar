@@ -1,0 +1,18 @@
+# Dependencias
+node_modules/
+
+# Artefactos de compilación (instalador NSIS y app empaquetada)
+dist/
+
+# Base de datos de trabajo y copias de seguridad: son datos del club, no código
+pos.db
+pos.db-shm
+pos.db-wal
+backups/
+
+# Pruebas locales del instalador
+.installer-test-data/
+
+# Sistema
+Thumbs.db
+Desktop.ini
