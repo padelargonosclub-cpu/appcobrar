@@ -127,6 +127,16 @@ desconocido" la primera vez.
 > Si se salta ese paso, el instalador sale con el binario equivocado y la
 > aplicación muere al abrirse con el error `NODE_MODULE_VERSION`. Le pasó a la
 > versión 0.1.0.
+>
+> `install-app-deps` a veces dice que ha terminado sin haber tocado el binario
+> (si ya había uno de antes). Si la aplicación no abre y se queja de
+> `NODE_MODULE_VERSION`, se fuerza así, indicando la versión de Electron que
+> aparece en `node_modules/electron/package.json`:
+>
+> ```bash
+> cd node_modules/better-sqlite3
+> node ../prebuild-install/bin.js --runtime electron --target 37.10.3 --arch x64 --force
+> ```
 
 ### Publicar una actualización
 
