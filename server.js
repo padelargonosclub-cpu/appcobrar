@@ -146,7 +146,19 @@ function findUserByPin(pin) {
   return null;
 }
 
+// Mientras el club no tenga empleados, pedir el PIN a cada paso solo estorba.
+// Se guarda como ajuste para poder reactivarlo sin tocar el código.
+function pinRequired() {
+  return getSetting('require_pin') !== '0';
+}
+
 function requireAdmin(req, res, next) {
+  if (!pinRequired()) {
+    // Sin PIN no hay forma de saber quién actúa. Se deja constancia de eso en
+    // lugar de atribuirlo a alguien por descarte, que sería peor que no saberlo.
+    req.user = { id: null, name: 'Sin identificar' };
+    return next();
+  }
   if (countUsers() === 0) return res.status(428).json({ error: 'Primero debes crear el PIN de administrador.' });
   const user = findUserByPin(req.get('x-admin-pin'));
   if (!user) return res.status(401).json({ error: 'PIN incorrecto.' });
@@ -159,7 +171,18 @@ function logAction(user, action, detail) {
     .run(user?.id ?? null, user?.name || 'Desconocido', action, detail || null);
 }
 
-app.get('/api/admin/status', (req, res) => res.json({ configured: countUsers() > 0 }));
+app.get('/api/admin/status', (req, res) => res.json({ configured: countUsers() > 0, required: pinRequired() }));
+
+// Apagarlo exige el PIN (si no, no protegería nada); encenderlo no lo exige,
+// porque estando apagado cualquiera puede hacer ya lo que quiera.
+app.post('/api/admin/pin-mode', requireAdmin, (req, res) => {
+  const required = Boolean(req.body.required);
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run('require_pin', required ? '1' : '0');
+  logAction(req.user, required ? 'pin_activado' : 'pin_desactivado',
+    required ? 'Las acciones protegidas vuelven a pedir PIN' : 'Las acciones protegidas dejan de pedir PIN');
+  res.json({ required });
+});
 app.post('/api/admin/setup', (req, res) => {
   if (countUsers() > 0) return res.status(409).json({ error: 'El PIN ya está configurado.' });
   const pin = String(req.body.pin || '');

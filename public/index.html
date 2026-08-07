@@ -128,6 +128,7 @@
           <span>Categoría</span>
           <select id="new-cat">
             <option>Bebidas</option>
+            <option>Comida</option>
             <option>Material deportivo</option>
             <option>Alquileres</option>
             <option>Otros</option>
@@ -240,6 +241,17 @@
 
   <!-- ============ AJUSTES ============ -->
   <section id="view-ajustes" hidden>
+    <div class="card">
+      <div class="panel-title">
+        <div><h2>PIN de las acciones protegidas</h2><span class="hint">Anular cobros, cambiar precios, cerrar caja y abrir el cajón</span></div>
+      </div>
+      <label class="check-field">
+        <input id="pin-required" type="checkbox">
+        <span>Pedir el PIN antes de cada acción protegida</span>
+      </label>
+      <p id="pin-mode-hint" class="pin-mode-hint"></p>
+    </div>
+
     <div class="card">
       <div class="panel-title">
         <div><h2>Personas con acceso</h2><span class="hint">Cada una con su PIN, para saber quién hace cada cosa</span></div>

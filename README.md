@@ -64,6 +64,18 @@ automáticamente en un usuario llamado "Administrador".
 Dar de baja a una persona no la borra: se desactiva, para que su nombre siga
 teniendo sentido en el registro de actividad.
 
+### Trabajar sin PIN
+
+Mientras el club lo lleve una sola persona, pedir el PIN a cada paso solo
+estorba. En *Ajustes → PIN de las acciones protegidas* se puede desactivar:
+todo sigue funcionando igual, pero el registro de actividad anota las acciones
+como "Sin identificar", porque sin PIN no hay forma de saber quién las hizo.
+
+Apagarlo pide el PIN (si no, no protegería nada). Encenderlo no lo pide: estando
+apagado, cualquiera podría hacerlo de todos modos. Ambas cosas quedan
+registradas. En cuanto haya más de una persona en la barra conviene volver a
+activarlo, que es lo que da sentido al registro.
+
 **Los PIN no se pueden recuperar desde la aplicación.** Si se pierden todos, hay
 que vaciar la tabla en la base de datos y volver a empezar:
 

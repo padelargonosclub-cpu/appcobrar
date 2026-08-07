@@ -54,10 +54,13 @@ window.fetch = async function protectedFetch(input, options = {}) {
     || (url === '/api/cash-drawer/open' && methodName === 'POST')
     || (url === '/api/cash-closures' && methodName === 'POST')
     || url.startsWith('/api/users')
-    || url === '/api/audit';
+    || url === '/api/audit'
+    || (url === '/api/admin/pin-mode' && methodName === 'POST');
   if (!sensitive) return nativeFetch(input, options);
 
   const status = await nativeFetch('/api/admin/status').then((res) => res.json());
+  // Con el PIN desactivado no tiene sentido preguntarlo: el servidor no lo pide.
+  if (!status.required) return nativeFetch(input, options);
   const message = status.configured
     ? 'Introduce el PIN de administrador:'
     : 'Crea un PIN de administrador de 4 a 8 números. Guárdalo bien:';
@@ -553,6 +556,32 @@ async function saveClosure() {
 
 // ---------- Personas y registro ----------
 
+async function loadPinMode() {
+  const status = await nativeFetch('/api/admin/status').then((res) => res.json());
+  document.getElementById('pin-required').checked = status.required;
+  document.getElementById('pin-mode-hint').textContent = status.required
+    ? 'Cada acción protegida pide el PIN, y en el registro queda quién la hizo.'
+    : 'No se pide PIN: cualquiera que llegue a este ordenador puede anular cobros, cambiar precios y abrir el cajón. En el registro las acciones salen como «Sin identificar».';
+  document.getElementById('pin-mode-hint').className = `pin-mode-hint${status.required ? '' : ' aviso'}`;
+  return status;
+}
+
+async function togglePinMode(required) {
+  const res = await fetch('/api/admin/pin-mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ required }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo cambiar el ajuste.', 'error');
+    await loadPinMode();
+    return;
+  }
+  await loadPinMode();
+  showToast(required ? 'A partir de ahora se pedirá el PIN.' : 'Ya no se pedirá el PIN.', 'success');
+}
+
 async function loadUsers() {
   const res = await fetch('/api/users');
   const el = document.getElementById('user-list');
@@ -600,6 +629,7 @@ async function loadAudit() {
     producto_editado: 'Editó un producto', producto_borrado: 'Borró un producto', stock_ajustado: 'Ajustó stock',
     entrada_mercancia: 'Registró mercancía', cajon_abierto: 'Abrió el cajón', cierre_caja: 'Cerró la caja',
     usuario_creado: 'Dio de alta a alguien', usuario_baja: 'Dio de baja a alguien',
+    pin_activado: 'Activó el PIN', pin_desactivado: 'Desactivó el PIN',
   };
   el.innerHTML = entries.map((e) => {
     const d = new Date(e.created_at.replace(' ', 'T'));
@@ -714,6 +744,7 @@ document.getElementById('add-user').addEventListener('click', async () => {
   showToast(`${data.name} ya puede usar su PIN.`, 'success');
 });
 document.getElementById('load-audit').addEventListener('click', loadAudit);
+document.getElementById('pin-required').addEventListener('change', (event) => togglePinMode(event.target.checked));
 
 document.getElementById('export-csv').addEventListener('click', () => {
   const from = document.getElementById('export-from').value;
@@ -756,7 +787,7 @@ document.querySelectorAll('[data-view]').forEach((btn) => {
     });
     if (btn.dataset.view === 'historial') loadSales();
     if (btn.dataset.view === 'catalogo') loadStockEntries();
-    if (btn.dataset.view === 'ajustes') loadUsers();
+    if (btn.dataset.view === 'ajustes') { loadPinMode(); loadUsers(); }
   });
 });
 

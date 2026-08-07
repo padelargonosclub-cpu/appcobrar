@@ -247,6 +247,7 @@ main {
 /* — Colores por categoría — */
 
 [data-cat="Bebidas"]    { --cat: #0ea5e9; }
+[data-cat="Comida"]     { --cat: #e07a1f; }
 [data-cat="Material deportivo"] { --cat: #8b5cf6; }
 [data-cat="Alquileres"] { --cat: #0e8a56; }
 [data-cat="Otros"]      { --cat: #8a97a8; }
@@ -733,6 +734,9 @@ button:focus-visible {
 .export-form { display: grid; grid-template-columns: repeat(2, minmax(0, 200px)) auto; gap: 12px; align-items: end; }
 
 /* ============ Ajustes: personas y registro ============ */
+
+.pin-mode-hint { margin-top: 10px; font-size: 13px; color: var(--ink-soft); line-height: 1.4; }
+.pin-mode-hint.aviso { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--red-soft); color: var(--red); font-weight: 600; }
 
 .user-list { margin-top: 16px; }
 .user-row { display: grid; grid-template-columns: 1fr 90px auto; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }

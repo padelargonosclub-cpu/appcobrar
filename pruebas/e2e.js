@@ -83,6 +83,28 @@ async function main() {
   comprobar('Marta ya puede consultar la lista', listaPersonas.status === 200 && listaPersonas.cuerpo.length === 2);
   comprobar('la lista nunca devuelve el hash del PIN', !listaPersonas.texto.includes('pin_hash'));
 
+  console.log('\n# Interruptor del PIN');
+  comprobar('de serie el PIN se pide', (await api('/api/admin/status')).cuerpo.required === true);
+  comprobar('apagarlo sin PIN no cuela',
+    (await api('/api/admin/pin-mode', { method: 'POST', body: { required: false } })).status === 401);
+  comprobar('con PIN sí se apaga',
+    (await api('/api/admin/pin-mode', { method: 'POST', pin: PIN_ANA, body: { required: false } })).status === 200);
+  comprobar('y queda apagado', (await api('/api/admin/status')).cuerpo.required === false);
+
+  const sinPinAhora = await api('/api/products', { method: 'POST', body: { name: 'Bocadillo', category: 'Comida', price: 3.5, stock: 20 } });
+  comprobar('ahora se puede crear un producto sin PIN', sinPinAhora.status === 201, `dio ${sinPinAhora.status}`);
+  const anotacionAnonima = (await api('/api/audit')).cuerpo.find((e) => e.action === 'producto_creado');
+  comprobar('pero el registro lo marca como Sin identificar',
+    anotacionAnonima && anotacionAnonima.user_name === 'Sin identificar', anotacionAnonima && anotacionAnonima.user_name);
+  comprobar('el registro se puede consultar sin PIN estando apagado', (await api('/api/audit')).status === 200);
+
+  comprobar('se vuelve a encender sin PIN (estando apagado no protege nada)',
+    (await api('/api/admin/pin-mode', { method: 'POST', body: { required: true } })).status === 200);
+  comprobar('y vuelve a exigirlo', (await api('/api/products', { method: 'POST', body: { name: 'Y', category: 'Otros', price: 1 } })).status === 401);
+  comprobar('el encendido y el apagado quedan registrados',
+    (await api('/api/audit', { pin: PIN_ANA })).cuerpo.filter((e) => e.action.startsWith('pin_')).length === 2);
+  await api(`/api/products/${sinPinAhora.cuerpo.id}`, { method: 'DELETE', pin: PIN_ANA });
+
   console.log('\n# Venta y stock');
   const venta = await api('/api/sales', { method: 'POST', body: { items: [{ productId: agua.id, qty: 2 }], method: 'efectivo', amountReceived: 5 } });
   comprobar('se registra la venta', venta.status === 201, `dio ${venta.status}: ${venta.texto}`);
