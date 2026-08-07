@@ -1,55 +1,86 @@
-# POS del club de pádel — demo funcional
+# Caja Pádel Argonos
 
-Backend real en Node.js + Express + SQLite (better-sqlite3), con la misma lógica que describimos para el sistema final: catálogo, stock, ventas y cálculo de totales. La apertura del cajón está **simulada** (un mensaje en la consola) en el punto exacto donde, en producción, iría la llamada HTTP al ESP32.
+Punto de venta interno del club: catálogo con stock, cobros en efectivo o
+tarjeta, historial por día y arqueo de caja. Backend en Node.js + Express con
+base de datos SQLite, e interfaz web servida desde `public/`.
 
-## 1. Organiza los archivos
+La apertura del cajón está **simulada** todavía: la función `abrirCajon()` de
+`server.js` escribe un aviso en la consola en el punto exacto donde irá la
+llamada al ESP32.
 
-Por cómo se generaron, los archivos llevan el prefijo `pos-club-padel-`. Crea una carpeta y renómbralos así dentro:
+## Cómo se usa
 
-```
-pos-club-padel/
-├── server.js         (antes: pos-club-padel-server.js)
-├── package.json      (antes: pos-club-padel-package.json)
-├── index.html        (antes: pos-club-padel-index.html)
-├── app.js             (antes: pos-club-padel-app.js)
-└── style.css          (antes: pos-club-padel-style.css)
-```
+Hay dos formas de arrancarlo, y no dan la misma seguridad.
 
-## 2. Instala dependencias
+### App de escritorio (la recomendada)
 
-Necesitas Node.js 18 o superior instalado.
+El instalador `Caja-Padel-Argonos-Setup-<versión>.exe` deja un acceso directo en
+el escritorio. La aplicación levanta el servidor en `127.0.0.1` con un puerto
+aleatorio, así que **solo es accesible desde ese PC**. Desde la versión 0.2.0 se
+configura sola para abrirse al encender el ordenador; si no lo quieres, se
+desactiva en *Administrador de tareas → Inicio*.
+
+### Servidor en la red del club
 
 ```bash
-cd pos-club-padel
 npm install
-```
-
-## 3. Arranca el servidor
-
-```bash
 npm start
 ```
 
-Verás: `POS del club escuchando en http://localhost:3000`
+Queda en `http://localhost:3000`, y también en `http://<IP-del-PC>:3000` desde
+el móvil o la tablet (la IP se ve con `ipconfig`).
 
-## 4. Ábrelo
+> **Ojo con este modo:** el servidor escucha en toda la red, así que cualquiera
+> conectado a la WiFi puede vender, consultar el historial y, si todavía no
+> habéis creado el PIN, crearlo antes que vosotros. Úsalo solo en una red de
+> confianza, no en la WiFi de invitados.
 
-- Desde el propio PC: `http://localhost:3000`
-- Desde el móvil/tablet del club (misma WiFi): `http://<IP-del-PC>:3000` — por ejemplo `http://192.168.1.20:3000`. La IP del PC la ves con `ipconfig` (Windows) o `ifconfig`/`ip a` (Linux/Mac).
+## El PIN de administrador
 
-## Qué puedes probar
+Cobrar no pide nada: el cajero vende sin interrupciones. Sí piden PIN las
+acciones delicadas: crear, editar o borrar productos, ajustar stock, registrar
+entradas de mercancía, editar o anular cobros y abrir el cajón a mano.
 
-- **Catálogo**: añadir un producto, editar su precio o stock directamente en la fila (se guarda al salir del campo), eliminarlo.
-- **Cobrar**: tocar productos para añadirlos al carrito, ajustar cantidades, elegir efectivo o tarjeta, confirmar el cobro. El stock se descuenta de verdad en la base de datos.
-- **Historial**: ventas del día con hora, método de pago y detalle.
+El PIN (4 a 8 números) se crea la primera vez que alguien intenta una de esas
+acciones, y se guarda cifrado con scrypt. **No hay forma de recuperarlo desde la
+aplicación.** Si se pierde, hay que borrar su fila de la base de datos:
 
-## Dónde vive la base de datos
+```sql
+DELETE FROM settings WHERE key = 'admin_pin';
+```
 
-Al arrancar por primera vez se crea `pos.db` en esa misma carpeta (SQLite, un solo archivo), con 6 productos de ejemplo (bebidas, bolas, grip, alquiler de pista). Para hacer una copia de seguridad, basta con copiar ese archivo.
+## Dónde viven los datos
 
-## Dónde conectarías el ESP32
+| | App de escritorio | `npm start` |
+|---|---|---|
+| Base de datos | `%LOCALAPPDATA%\PadelArgonos\data\pos.db` | `pos.db` junto a `server.js` |
+| Copias | `Documentos\Padel Argonos\Copias de seguridad` | `backups/` |
 
-En `server.js`, la función `abrirCajon()` (línea ~55) es el único punto que necesitas tocar: sustituye el `console.log` por una petición HTTP real al ESP32, por ejemplo:
+Se crea una copia diaria automática y se conservan los últimos 30 días. Como
+todo vive en el mismo equipo, conviene que esa carpeta de copias esté
+sincronizada con Drive, Dropbox o similar: si falla el disco, ahora mismo se
+pierden a la vez la base de datos y sus copias.
+
+Ni `pos.db` ni las copias están en este repositorio: son datos del club, no
+código.
+
+## Compilar el instalador
+
+```bash
+npm run dist
+```
+
+Genera el `.exe` en `dist/` (unos 95 MB, por eso tampoco se sube al repo).
+El instalador no está firmado, así que Windows mostrará el aviso de "editor
+desconocido" la primera vez.
+
+`initial-pos.db` es la base de datos semilla que la aplicación copia la primera
+vez que se abre. Contiene el catálogo de ejemplo y, ahora mismo, también unas
+ventas de prueba que convendría limpiar antes de entregarlo al club.
+
+## Dónde conectar el ESP32
+
+En `server.js`, sustituir el `console.log` de `abrirCajon()` por la llamada real:
 
 ```js
 function abrirCajon() {
@@ -60,8 +91,15 @@ function abrirCajon() {
 }
 ```
 
-## Seguridad y copias
+El montaje eléctrico, el pinout del cajón Tera 330R y el plan por fases están en
+[analisis-viabilidad.md](analisis-viabilidad.md).
 
-El frontend se sirve exclusivamente desde `public/`. `pos.db`, `server.js` y las copias de seguridad no son accesibles por HTTP.
+## Pendiente
 
-Al arrancar se crea, como máximo, una copia diaria consistente en `backups/`. Se conservan automáticamente los últimos 30 días.
+- Conectar el ESP32 (fases 0 y 1 del análisis).
+- Usuarios y roles: hoy hay un único PIN compartido, así que una anulación no
+  deja constancia de quién la hizo.
+- Exportación de ventas a CSV.
+- Confirmar con la gestoría si al emitir tickets al cliente aplica el reglamento
+  de sistemas de facturación (Veri\*Factu), que no permite editar ni borrar
+  registros como se hace ahora.

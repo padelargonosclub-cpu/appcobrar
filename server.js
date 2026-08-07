@@ -346,8 +346,12 @@ app.delete('/api/sales/:id', requireAdmin, (req, res) => {
   }
 });
 
+// Con ?date=YYYY-MM-DD devuelve el día completo; sin filtro, las últimas 200.
 app.get('/api/sales', (req, res) => {
-  const sales = db.prepare('SELECT * FROM sales ORDER BY id DESC LIMIT 200').all();
+  const date = String(req.query.date || '');
+  const sales = /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? db.prepare('SELECT * FROM sales WHERE date(created_at) = ? ORDER BY id DESC').all(date)
+    : db.prepare('SELECT * FROM sales ORDER BY id DESC LIMIT 200').all();
   const itemsStmt = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?');
   res.json(sales.map((s) => ({ ...s, items: itemsStmt.all(s.id) })));
 });
@@ -359,11 +363,14 @@ app.get('/api/sales/:id', (req, res) => {
   res.json({ ...sale, items });
 });
 
+// Las ventas anuladas no cuentan: el arqueo tiene que cuadrar con el dinero real.
 app.get('/api/reports/daily', (req, res) => {
   const rows = db
     .prepare(
-      `SELECT date(created_at) AS day, COUNT(*) AS ventas, SUM(total) AS total
-       FROM sales GROUP BY day ORDER BY day DESC`
+      `SELECT date(created_at) AS day, COUNT(*) AS ventas, SUM(total) AS total,
+              SUM(CASE WHEN method = 'efectivo' THEN total ELSE 0 END) AS efectivo,
+              SUM(CASE WHEN method = 'tarjeta' THEN total ELSE 0 END) AS tarjeta
+       FROM sales WHERE voided_at IS NULL GROUP BY day ORDER BY day DESC`
     )
     .all();
   res.json(rows);

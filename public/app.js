@@ -4,7 +4,6 @@ let method = 'efectivo';
 let editingSaleId = null;
 let editingOriginal = new Map();
 let selectedCategory = 'Todos';
-let allSales = [];
 
 function localDateKey(date = new Date()) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
@@ -124,23 +123,34 @@ async function loadStockEntries() {
   }).join('');
 }
 
-async function loadSales() {
-  const res = await fetch('/api/sales');
-  allSales = await res.json();
-  renderSelectedDay();
-  updateSummary(allSales);
+// El servidor filtra por día: así el historial sigue siendo completo por muchas
+// ventas que acumule el club, en vez de quedarse en las últimas doscientas.
+async function fetchSalesOfDay(dateKey) {
+  const res = await fetch(`/api/sales?date=${dateKey}`);
+  return res.json();
 }
 
-function renderSelectedDay() {
-  const input = document.getElementById('history-date');
-  const selected = input.value || localDateKey();
-  const sales = allSales.filter((sale) => sale.created_at.slice(0, 10) === selected);
+async function loadSales() {
+  const today = localDateKey();
+  const selected = document.getElementById('history-date').value || today;
+  const daySales = await fetchSalesOfDay(selected);
+  renderSelectedDay(selected, daySales);
+  updateSummary(selected === today ? daySales : await fetchSalesOfDay(today));
+}
+
+function renderSelectedDay(selected, sales) {
   const activeSales = sales.filter((sale) => !sale.voided_at);
-  const total = activeSales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalOf = (payMethod) => activeSales
+    .filter((sale) => sale.method === payMethod)
+    .reduce((sum, sale) => sum + sale.total, 0);
+  const cash = totalOf('efectivo');
+  const card = totalOf('tarjeta');
   const date = new Date(`${selected}T12:00:00`);
   document.getElementById('selected-day-label').textContent = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  document.getElementById('selected-day-total').textContent = fmt(total);
+  document.getElementById('selected-day-total').textContent = fmt(cash + card);
   document.getElementById('selected-day-count').textContent = `${activeSales.length} ${activeSales.length === 1 ? 'cobro' : 'cobros'}`;
+  document.getElementById('selected-day-cash').textContent = fmt(cash);
+  document.getElementById('selected-day-card').textContent = fmt(card);
   renderHistorial(sales);
 }
 
@@ -156,10 +166,10 @@ function renderCatalog() {
     row.className = 'catalog-row catalog-cols';
     row.innerHTML = `
       <input type="text" class="name-input" data-id="${p.id}" value="${escapeHtml(p.name)}" aria-label="Nombre de ${escapeHtml(p.name)}">
-      <span class="badge" data-cat="${p.category}">${p.category}</span>
-      <input type="number" step="0.10" min="0" class="num price-input" data-id="${p.id}" value="${p.price.toFixed(2)}" aria-label="Precio de ${p.name}">
-      <span class="stock-editor"><input type="number" step="1" min="0" class="num stock-input" data-id="${p.id}" value="${p.stock}" ${p.unlimited_stock ? 'disabled' : ''} aria-label="Stock de ${p.name}"><label title="Stock infinito"><input type="checkbox" class="unlimited-input" data-id="${p.id}" ${p.unlimited_stock ? 'checked' : ''}> ∞</label></span>
-      <button class="del-btn" data-id="${p.id}" title="Eliminar producto" aria-label="Eliminar ${p.name}">${ICON_TRASH}</button>
+      <span class="badge" data-cat="${escapeHtml(p.category)}">${escapeHtml(p.category)}</span>
+      <input type="number" step="0.10" min="0" class="num price-input" data-id="${p.id}" value="${p.price.toFixed(2)}" aria-label="Precio de ${escapeHtml(p.name)}">
+      <span class="stock-editor"><input type="number" step="1" min="0" class="num stock-input" data-id="${p.id}" value="${p.stock}" ${p.unlimited_stock ? 'disabled' : ''} aria-label="Stock de ${escapeHtml(p.name)}"><label title="Stock infinito"><input type="checkbox" class="unlimited-input" data-id="${p.id}" ${p.unlimited_stock ? 'checked' : ''}> ∞</label></span>
+      <button class="del-btn" data-id="${p.id}" title="Eliminar producto" aria-label="Eliminar ${escapeHtml(p.name)}">${ICON_TRASH}</button>
     `;
     el.appendChild(row);
   });
@@ -236,7 +246,7 @@ function renderVentaGrid() {
     btn.dataset.cat = p.category;
     btn.disabled = left <= 0;
     btn.innerHTML = `
-      <span class="prod-btn-name">${p.name}</span>
+      <span class="prod-btn-name">${escapeHtml(p.name)}</span>
       <span class="prod-btn-meta">
         <span class="prod-btn-price">${fmt(p.price)}</span>
         <span class="stock-pill${left > 0 && left <= 5 ? ' low' : ''}">${p.unlimited_stock ? '∞ stock' : (left > 0 ? left + ' uds' : 'Agotado')}</span>
@@ -306,13 +316,13 @@ function renderCart() {
     row.className = 'ticket-line';
     row.innerHTML = `
       <div class="ticket-line-info">
-        <span class="ticket-line-name">${p.name}</span>
+        <span class="ticket-line-name">${escapeHtml(p.name)}</span>
         <span class="ticket-line-unit">${fmt(p.price)} / ud</span>
       </div>
       <div class="qty-group">
-        <button class="qty-btn qty-minus" data-id="${p.id}" aria-label="Quitar una unidad de ${p.name}">−</button>
+        <button class="qty-btn qty-minus" data-id="${p.id}" aria-label="Quitar una unidad de ${escapeHtml(p.name)}">−</button>
         <span class="qty">${c.qty}</span>
-        <button class="qty-btn qty-plus" data-id="${p.id}" aria-label="Añadir una unidad de ${p.name}">+</button>
+        <button class="qty-btn qty-plus" data-id="${p.id}" aria-label="Añadir una unidad de ${escapeHtml(p.name)}">+</button>
       </div>
       <span class="line-total">${fmt(p.price * c.qty)}</span>
     `;
@@ -394,7 +404,7 @@ function renderHistorial(sales) {
       hour: '2-digit',
       minute: '2-digit',
     });
-    const items = s.items.map((i) => `${i.qty}× ${i.product_name}`).join(', ');
+    const items = s.items.map((i) => `${i.qty}× ${escapeHtml(i.product_name)}`).join(', ');
     row.innerHTML = `
       <span class="time">${time}</span>
       <span class="badge method-badge ${s.voided_at ? 'anulada' : s.method}">${s.voided_at ? 'Anulada' : s.method}</span>
@@ -435,6 +445,10 @@ async function deleteSale(id) {
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Anular';
+    }
     showToast(data.error || 'No se pudo anular el cobro.', 'error');
     return;
   }
@@ -483,9 +497,9 @@ function cancelEdit() {
   renderVentaGrid();
 }
 
+// Recibe únicamente las ventas de hoy; solo hay que descartar las anuladas.
 function updateSummary(sales) {
-  const today = localDateKey();
-  const todaySales = sales.filter((s) => !s.voided_at && s.created_at.slice(0, 10) === today);
+  const todaySales = sales.filter((s) => !s.voided_at);
   const total = todaySales.reduce((s, v) => s + v.total, 0);
   document.getElementById('stat-count').textContent = todaySales.length;
   document.getElementById('stat-total').textContent = fmt(total);
@@ -549,10 +563,10 @@ document.getElementById('open-drawer-btn').addEventListener('click', async () =>
   }
 });
 document.getElementById('history-date').value = localDateKey();
-document.getElementById('history-date').addEventListener('change', renderSelectedDay);
+document.getElementById('history-date').addEventListener('change', loadSales);
 document.getElementById('history-today').addEventListener('click', () => {
   document.getElementById('history-date').value = localDateKey();
-  renderSelectedDay();
+  loadSales();
 });
 document.getElementById('cash-received').addEventListener('input', updateChange);
 
