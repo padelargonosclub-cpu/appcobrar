@@ -151,8 +151,8 @@ público (si fuera privado, la app necesitaría llevar un token dentro, que
 cualquiera podría extraer del `.exe`).
 
 `initial-pos.db` es la base de datos semilla que la aplicación copia la primera
-vez que se abre. Contiene el catálogo de ejemplo y, ahora mismo, también unas
-ventas de prueba que convendría limpiar antes de entregarlo al club.
+vez que se abre. Trae un catálogo de 12 productos de partida y ninguna venta,
+así que el club empieza con el historial vacío.
 
 ## Dónde conectar el ESP32
 
