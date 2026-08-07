@@ -6,9 +6,12 @@ dist/
 
 # Base de datos de trabajo y copias de seguridad: son datos del club, no código
 pos.db
-pos.db-shm
-pos.db-wal
 backups/
+
+# Archivos auxiliares que SQLite crea al abrir cualquier base de datos WAL,
+# incluida la semilla. No son parte del proyecto.
+*.db-shm
+*.db-wal
 
 # Pruebas locales del instalador
 .installer-test-data/
