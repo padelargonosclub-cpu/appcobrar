@@ -23,17 +23,28 @@ desactiva en *Administrador de tareas → Inicio*.
 ### Servidor en la red del club
 
 ```bash
-npm install
 npm start
 ```
 
 Queda en `http://localhost:3000`, y también en `http://<IP-del-PC>:3000` desde
 el móvil o la tablet (la IP se ve con `ipconfig`).
 
-> **Ojo con este modo:** el servidor escucha en toda la red, así que cualquiera
-> conectado a la WiFi puede vender, consultar el historial y, si todavía no
-> habéis creado el PIN, crearlo antes que vosotros. Úsalo solo en una red de
-> confianza, no en la WiFi de invitados.
+> **Este modo necesita un paso extra.** `npm install` deja `better-sqlite3`
+> compilado para Electron, que es lo que necesita la aplicación de escritorio.
+> Para arrancarlo con Node suelto hay que recompilarlo antes:
+>
+> ```bash
+> npm rebuild better-sqlite3
+> ```
+>
+> Y para volver a compilar el instalador, deshacerlo con
+> `npx electron-builder install-app-deps`. Las dos versiones del módulo no
+> conviven, así que conviene elegir un modo y quedarse en él.
+
+> **Ojo con la seguridad de este modo:** el servidor escucha en toda la red, así
+> que cualquiera conectado a la WiFi puede vender, consultar el historial y, si
+> todavía no habéis creado ningún PIN, crear el primero antes que vosotros.
+> Úsalo solo en una red de confianza, no en la WiFi de invitados.
 
 ## Quién puede hacer qué
 
@@ -87,6 +98,17 @@ pierden a la vez la base de datos y sus copias.
 
 Ni `pos.db` ni las copias están en este repositorio: son datos del club, no
 código.
+
+## Pruebas
+
+```bash
+npm test
+```
+
+Levanta el servidor contra una base de datos desechable y recorre el flujo
+completo: PIN por persona, venta, stock, anulación con autor, registro de
+actividad, cierre de caja con descuadre, informes y CSV. No toca los datos del
+club. Conviene pasarlas antes de compilar cada versión.
 
 ## Compilar el instalador
 
