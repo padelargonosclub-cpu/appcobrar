@@ -51,7 +51,10 @@ window.fetch = async function protectedFetch(input, options = {}) {
   const sensitive = (url.startsWith('/api/products') && methodName !== 'GET')
     || (/^\/api\/sales\/\d+$/.test(url) && ['PUT', 'DELETE'].includes(methodName))
     || (url === '/api/stock-entries' && methodName === 'POST')
-    || (url === '/api/cash-drawer/open' && methodName === 'POST');
+    || (url === '/api/cash-drawer/open' && methodName === 'POST')
+    || (url === '/api/cash-closures' && methodName === 'POST')
+    || url.startsWith('/api/users')
+    || url === '/api/audit';
   if (!sensitive) return nativeFetch(input, options);
 
   const status = await nativeFetch('/api/admin/status').then((res) => res.json());
@@ -136,6 +139,7 @@ async function loadSales() {
   const daySales = await fetchSalesOfDay(selected);
   renderSelectedDay(selected, daySales);
   updateSummary(selected === today ? daySales : await fetchSalesOfDay(today));
+  await loadClosure();
 }
 
 function renderSelectedDay(selected, sales) {
@@ -497,6 +501,117 @@ function cancelEdit() {
   renderVentaGrid();
 }
 
+// ---------- Cierre de caja ----------
+
+async function loadClosure() {
+  const day = document.getElementById('history-date').value || localDateKey();
+  const res = await fetch(`/api/cash-closures?date=${day}`);
+  const data = await res.json();
+  const state = document.getElementById('closure-state');
+  const toggle = document.getElementById('toggle-closure');
+  if (data.closure) {
+    const c = data.closure;
+    const signo = c.difference > 0 ? 'Sobra' : (c.difference < 0 ? 'Falta' : 'Cuadra');
+    state.className = `closure-state done${c.difference === 0 ? '' : ' warn'}`;
+    state.innerHTML = `<strong>${signo} ${fmt(Math.abs(c.difference))}</strong>
+      <span>Esperado ${fmt(c.expected)} · contado ${fmt(c.counted)} · cambio inicial ${fmt(c.opening_float)}</span>
+      <small>Cerrado por ${escapeHtml(c.user_name || 'desconocido')}${c.note ? ' · ' + escapeHtml(c.note) : ''}</small>`;
+    toggle.hidden = true;
+    document.getElementById('closure-form').hidden = true;
+  } else {
+    state.className = 'closure-state';
+    state.innerHTML = `<span>Este día no tiene cierre. Según el sistema deberían salir <strong>${fmt(data.expected || 0)}</strong> en efectivo.</span>`;
+    toggle.hidden = false;
+  }
+}
+
+async function saveClosure() {
+  const day = document.getElementById('history-date').value || localDateKey();
+  const counted = Number(document.getElementById('closure-counted').value);
+  const openingFloat = Number(document.getElementById('closure-float').value || 0);
+  if (!Number.isFinite(counted) || document.getElementById('closure-counted').value.trim() === '') {
+    showToast('Indica cuánto dinero has contado.', 'error');
+    return;
+  }
+  const res = await fetch('/api/cash-closures', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ day, counted, openingFloat, note: document.getElementById('closure-note').value.trim() }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo guardar el cierre.', 'error');
+    return;
+  }
+  document.getElementById('closure-counted').value = '';
+  document.getElementById('closure-note').value = '';
+  document.getElementById('closure-form').hidden = true;
+  document.getElementById('toggle-closure').textContent = 'Hacer el cierre';
+  await loadClosure();
+  showToast(data.difference === 0 ? 'Cierre guardado: la caja cuadra.' : `Cierre guardado con un descuadre de ${fmt(data.difference)}.`, data.difference === 0 ? 'success' : 'info');
+}
+
+// ---------- Personas y registro ----------
+
+async function loadUsers() {
+  const res = await fetch('/api/users');
+  const el = document.getElementById('user-list');
+  if (!res.ok) {
+    el.innerHTML = '<div class="empty-state"><p>Hace falta el PIN para ver quién tiene acceso</p></div>';
+    return;
+  }
+  const users = await res.json();
+  el.innerHTML = users.map((u) => `
+    <div class="user-row${u.active ? '' : ' inactive'}">
+      <span class="user-name">${escapeHtml(u.name)}</span>
+      <span class="badge">${u.active ? 'Activa' : 'De baja'}</span>
+      ${u.active ? `<button class="delete-user-btn" data-id="${u.id}">Dar de baja</button>` : '<span></span>'}
+    </div>`).join('');
+  el.querySelectorAll('.delete-user-btn').forEach((b) => b.addEventListener('click', () => removeUser(Number(b.dataset.id))));
+}
+
+async function removeUser(id) {
+  const confirmed = await showDialog({ title: 'Dar de baja', message: 'Esa persona dejará de poder anular, editar precios y abrir el cajón. Su nombre seguirá en el registro de actividad.', confirmText: 'Dar de baja', danger: true });
+  if (!confirmed) return;
+  const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo dar de baja.', 'error');
+    return;
+  }
+  await loadUsers();
+  showToast('Persona dada de baja.', 'success');
+}
+
+async function loadAudit() {
+  const res = await fetch('/api/audit');
+  const el = document.getElementById('audit-list');
+  if (!res.ok) {
+    el.innerHTML = '<div class="empty-state"><p>Hace falta el PIN para ver el registro</p></div>';
+    return;
+  }
+  const entries = await res.json();
+  if (entries.length === 0) {
+    el.innerHTML = '<div class="empty-state"><p>Todavía no hay actividad registrada</p></div>';
+    return;
+  }
+  const nombres = {
+    venta_anulada: 'Anuló un cobro', venta_editada: 'Editó un cobro', producto_creado: 'Creó un producto',
+    producto_editado: 'Editó un producto', producto_borrado: 'Borró un producto', stock_ajustado: 'Ajustó stock',
+    entrada_mercancia: 'Registró mercancía', cajon_abierto: 'Abrió el cajón', cierre_caja: 'Cerró la caja',
+    usuario_creado: 'Dio de alta a alguien', usuario_baja: 'Dio de baja a alguien',
+  };
+  el.innerHTML = entries.map((e) => {
+    const d = new Date(e.created_at.replace(' ', 'T'));
+    return `<div class="audit-row${e.action === 'venta_anulada' ? ' alert' : ''}">
+      <time>${d.toLocaleDateString('es-ES')} ${d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</time>
+      <strong>${escapeHtml(e.user_name)}</strong>
+      <span>${nombres[e.action] || escapeHtml(e.action)}</span>
+      <small>${escapeHtml(e.detail || '')}</small>
+    </div>`;
+  }).join('');
+}
+
 // Recibe únicamente las ventas de hoy; solo hay que descartar las anuladas.
 function updateSummary(sales) {
   const todaySales = sales.filter((s) => !s.voided_at);
@@ -563,12 +678,61 @@ document.getElementById('open-drawer-btn').addEventListener('click', async () =>
   }
 });
 document.getElementById('history-date').value = localDateKey();
+// Por defecto, exportar el mes en curso: es lo que suele pedir la gestoría.
+document.getElementById('export-from').value = `${localDateKey().slice(0, 8)}01`;
+document.getElementById('export-to').value = localDateKey();
 document.getElementById('history-date').addEventListener('change', loadSales);
 document.getElementById('history-today').addEventListener('click', () => {
   document.getElementById('history-date').value = localDateKey();
   loadSales();
 });
 document.getElementById('cash-received').addEventListener('input', updateChange);
+
+document.getElementById('toggle-closure').addEventListener('click', () => {
+  const form = document.getElementById('closure-form');
+  form.hidden = !form.hidden;
+  document.getElementById('toggle-closure').textContent = form.hidden ? 'Hacer el cierre' : 'Cerrar';
+});
+document.getElementById('save-closure').addEventListener('click', saveClosure);
+
+document.getElementById('add-user').addEventListener('click', async () => {
+  const name = document.getElementById('user-name').value.trim();
+  const pin = document.getElementById('user-pin').value.trim();
+  if (!name || !/^\d{4,8}$/.test(pin)) {
+    showToast('Indica un nombre y un PIN de 4 a 8 números.', 'error');
+    return;
+  }
+  const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, pin }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo dar de alta.', 'error');
+    return;
+  }
+  document.getElementById('user-name').value = '';
+  document.getElementById('user-pin').value = '';
+  await loadUsers();
+  showToast(`${data.name} ya puede usar su PIN.`, 'success');
+});
+document.getElementById('load-audit').addEventListener('click', loadAudit);
+
+document.getElementById('export-csv').addEventListener('click', () => {
+  const from = document.getElementById('export-from').value;
+  const to = document.getElementById('export-to').value;
+  if (!from || !to) {
+    showToast('Elige la fecha de inicio y la de fin.', 'error');
+    return;
+  }
+  if (from > to) {
+    showToast('La fecha de inicio es posterior a la de fin.', 'error');
+    return;
+  }
+  const link = document.createElement('a');
+  link.href = `/api/reports/sales.csv?from=${from}&to=${to}`;
+  link.download = `ventas-${from}_${to}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+});
 
 document.getElementById('pay-efectivo').addEventListener('click', function () {
   method = 'efectivo';
@@ -587,11 +751,12 @@ document.querySelectorAll('[data-view]').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('[data-view]').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    ['catalogo', 'venta', 'historial'].forEach((v) => {
+    ['catalogo', 'venta', 'historial', 'ajustes'].forEach((v) => {
       document.getElementById(`view-${v}`).hidden = v !== btn.dataset.view;
     });
     if (btn.dataset.view === 'historial') loadSales();
     if (btn.dataset.view === 'catalogo') loadStockEntries();
+    if (btn.dataset.view === 'ajustes') loadUsers();
   });
 });
 

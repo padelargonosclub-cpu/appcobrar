@@ -42,6 +42,35 @@ function configurarArranqueAutomatico() {
   }
 }
 
+// Busca versiones nuevas en las releases de GitHub y las ofrece a quien esté en
+// el club. El require va dentro de un try: si el módulo no estuviera instalado,
+// la caja tiene que seguir abriéndose igual.
+function comprobarActualizaciones() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (error) {
+    console.error('[update] electron-updater no disponible:', error.message);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.on('error', (error) => console.error('[update] Fallo al buscar actualizaciones:', error.message));
+  autoUpdater.on('update-downloaded', async ({ version }) => {
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      buttons: ['Instalar y reiniciar', 'Más tarde'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Actualización disponible',
+      message: `Hay una versión nueva de la caja (${version}).`,
+      detail: 'Se instalará en unos segundos y la caja volverá a abrirse. No pierdes ninguna venta.',
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+  autoUpdater.checkForUpdates().catch((error) => console.error('[update]', error.message));
+}
+
 async function createWindow() {
   prepareDataPaths();
   configurarArranqueAutomatico();
@@ -69,6 +98,7 @@ async function createWindow() {
     return { action: 'deny' };
   });
   await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  comprobarActualizaciones();
 }
 
 app.whenReady().then(createWindow).catch((error) => {

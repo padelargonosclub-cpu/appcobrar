@@ -47,6 +47,32 @@ CREATE TABLE IF NOT EXISTS stock_entries (
   note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  pin_hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER,
+  user_name TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS cash_closures (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT NOT NULL UNIQUE,
+  opening_float REAL NOT NULL DEFAULT 0,
+  expected REAL NOT NULL,
+  counted REAL NOT NULL,
+  difference REAL NOT NULL,
+  note TEXT,
+  user_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 `);
 
 // Migraciones compatibles con bases de datos creadas por versiones anteriores.
@@ -86,29 +112,94 @@ function getSetting(key) {
   return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value;
 }
 
-function verifyAdminPin(pin) {
-  const stored = getSetting('admin_pin');
-  if (!stored || typeof pin !== 'string') return false;
-  const [salt, expected] = stored.split(':');
+function hashPin(pin) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return `${salt}:${crypto.scryptSync(pin, salt, 32).toString('hex')}`;
+}
+
+function pinMatches(pin, stored) {
+  const [salt, expected] = String(stored).split(':');
+  if (!salt || !expected) return false;
   const actual = crypto.scryptSync(pin, salt, 32).toString('hex');
   return expected.length === actual.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
 }
 
+function countUsers() {
+  return db.prepare('SELECT COUNT(*) AS c FROM users WHERE active = 1').get().c;
+}
+
+// El PIN único que usaban las versiones anteriores pasa a ser el primer usuario,
+// para que nadie se quede fuera al actualizar.
+const legacyPin = getSetting('admin_pin');
+if (legacyPin && db.prepare('SELECT COUNT(*) AS c FROM users').get().c === 0) {
+  db.prepare('INSERT INTO users (name, pin_hash) VALUES (?, ?)').run('Administrador', legacyPin);
+  console.log('[usuarios] El PIN anterior se ha convertido en el usuario "Administrador".');
+}
+
+// Se compara contra cada usuario activo: son pocos y así el PIN identifica
+// a la persona, que es justo lo que queremos registrar.
+function findUserByPin(pin) {
+  if (typeof pin !== 'string' || !pin) return null;
+  for (const user of db.prepare('SELECT * FROM users WHERE active = 1').all()) {
+    if (pinMatches(pin, user.pin_hash)) return user;
+  }
+  return null;
+}
+
 function requireAdmin(req, res, next) {
-  if (!getSetting('admin_pin')) return res.status(428).json({ error: 'Primero debes crear el PIN de administrador.' });
-  if (!verifyAdminPin(req.get('x-admin-pin'))) return res.status(401).json({ error: 'PIN de administrador incorrecto.' });
+  if (countUsers() === 0) return res.status(428).json({ error: 'Primero debes crear el PIN de administrador.' });
+  const user = findUserByPin(req.get('x-admin-pin'));
+  if (!user) return res.status(401).json({ error: 'PIN incorrecto.' });
+  req.user = user;
   next();
 }
 
-app.get('/api/admin/status', (req, res) => res.json({ configured: Boolean(getSetting('admin_pin')) }));
+function logAction(user, action, detail) {
+  db.prepare('INSERT INTO audit_log (user_id, user_name, action, detail) VALUES (?,?,?,?)')
+    .run(user?.id ?? null, user?.name || 'Desconocido', action, detail || null);
+}
+
+app.get('/api/admin/status', (req, res) => res.json({ configured: countUsers() > 0 }));
 app.post('/api/admin/setup', (req, res) => {
-  if (getSetting('admin_pin')) return res.status(409).json({ error: 'El PIN ya está configurado.' });
+  if (countUsers() > 0) return res.status(409).json({ error: 'El PIN ya está configurado.' });
   const pin = String(req.body.pin || '');
+  const name = String(req.body.name || 'Administrador').trim().slice(0, 60) || 'Administrador';
   if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: 'El PIN debe tener entre 4 y 8 números.' });
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(pin, salt, 32).toString('hex');
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('admin_pin', `${salt}:${hash}`);
+  const info = db.prepare('INSERT INTO users (name, pin_hash) VALUES (?, ?)').run(name, hashPin(pin));
+  logAction({ id: info.lastInsertRowid, name }, 'usuario_creado', `Primer usuario: ${name}`);
   res.status(201).json({ ok: true });
+});
+
+// ---------- Usuarios y registro de actividad ----------
+
+app.get('/api/users', requireAdmin, (req, res) => {
+  res.json(db.prepare('SELECT id, name, active, created_at FROM users ORDER BY active DESC, name').all());
+});
+
+app.post('/api/users', requireAdmin, (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 60);
+  const pin = String(req.body.pin || '');
+  if (!name) return res.status(400).json({ error: 'Indica el nombre de la persona.' });
+  if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: 'El PIN debe tener entre 4 y 8 números.' });
+  if (findUserByPin(pin)) return res.status(409).json({ error: 'Ese PIN ya lo usa otra persona. Elige otro.' });
+  const info = db.prepare('INSERT INTO users (name, pin_hash) VALUES (?, ?)').run(name, hashPin(pin));
+  logAction(req.user, 'usuario_creado', `Alta de ${name}`);
+  res.status(201).json(db.prepare('SELECT id, name, active, created_at FROM users WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Persona no encontrada.' });
+  if (!user.active) return res.status(409).json({ error: 'Esa persona ya estaba dada de baja.' });
+  if (countUsers() <= 1) return res.status(409).json({ error: 'No puedes dar de baja a la única persona con acceso.' });
+  // Se desactiva en vez de borrarse: si no, el registro de actividad perdería el nombre.
+  db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(req.params.id);
+  logAction(req.user, 'usuario_baja', `Baja de ${user.name}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/audit', requireAdmin, (req, res) => {
+  res.json(db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200').all());
 });
 
 async function backupDatabase() {
@@ -145,6 +236,7 @@ function abrirCajon() {
 
 app.post('/api/cash-drawer/open', requireAdmin, (req, res) => {
   abrirCajon();
+  logAction(req.user, 'cajon_abierto', 'Apertura manual desde la caja');
   res.json({ ok: true });
 });
 
@@ -164,6 +256,7 @@ app.post('/api/products', requireAdmin, (req, res) => {
     .prepare('INSERT INTO products (name, category, price, stock, unlimited_stock) VALUES (?,?,?,?,?)')
     .run(name, category, Number(price), Number(stock) || 0, unlimited_stock ? 1 : 0);
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
+  logAction(req.user, 'producto_creado', `${product.name} · ${product.price} €`);
   res.status(201).json(product);
 });
 
@@ -178,7 +271,10 @@ app.put('/api/products/:id', requireAdmin, (req, res) => {
     unlimited_stock == null ? product.unlimited_stock : (unlimited_stock ? 1 : 0),
     req.params.id
   );
-  res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id));
+  const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  const cambioPrecio = updated.price !== product.price ? `precio ${product.price} € -> ${updated.price} €` : null;
+  logAction(req.user, 'producto_editado', [updated.name, cambioPrecio].filter(Boolean).join(' · '));
+  res.json(updated);
 });
 
 app.patch('/api/products/:id/stock', requireAdmin, (req, res) => {
@@ -188,6 +284,7 @@ app.patch('/api/products/:id/stock', requireAdmin, (req, res) => {
   if (stock == null || Number(stock) < 0) return res.status(400).json({ error: 'Stock inválido.' });
   db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(Number(stock), req.params.id);
   console.log(`[stock] ${product.name}: ${product.stock} -> ${stock}${reason ? ' (' + reason + ')' : ''}`);
+  logAction(req.user, 'stock_ajustado', `${product.name}: ${product.stock} -> ${stock}${reason ? ' (' + reason + ')' : ''}`);
   res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id));
 });
 
@@ -206,7 +303,9 @@ app.post('/api/stock-entries', requireAdmin, (req, res) => {
     return db.prepare('SELECT * FROM stock_entries WHERE id = ?').get(info.lastInsertRowid);
   });
   try {
-    res.status(201).json(register());
+    const entry = register();
+    logAction(req.user, 'entrada_mercancia', `${entry.product_name}: +${entry.qty}${entry.note ? ' (' + entry.note + ')' : ''}`);
+    res.status(201).json(entry);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -217,8 +316,10 @@ app.get('/api/stock-entries', (req, res) => {
 });
 
 app.delete('/api/products/:id', requireAdmin, (req, res) => {
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   const info = db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
   if (info.changes === 0) return res.status(404).json({ error: 'Producto no encontrado.' });
+  logAction(req.user, 'producto_borrado', product.name);
   res.status(204).end();
 });
 
@@ -312,8 +413,11 @@ app.put('/api/sales/:id', requireAdmin, (req, res) => {
     }
   });
   try {
+    const antes = db.prepare('SELECT total FROM sales WHERE id = ?').get(req.params.id);
     editSale();
-    res.json({ ...db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id), items: db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(req.params.id) });
+    const despues = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
+    logAction(req.user, 'venta_editada', `Cobro #${req.params.id}: ${antes?.total ?? '?'} € -> ${despues.total} €`);
+    res.json({ ...despues, items: db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(req.params.id) });
   } catch (err) {
     res.status(err.message === 'Venta no encontrada.' ? 404 : 400).json({ error: err.message });
   }
@@ -338,8 +442,11 @@ app.delete('/api/sales/:id', requireAdmin, (req, res) => {
   });
 
   try {
+    const antes = db.prepare('SELECT total, method FROM sales WHERE id = ?').get(req.params.id);
     if (!voidSale()) return res.status(404).json({ error: 'Venta no encontrada.' });
-    res.json(db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id));
+    const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
+    logAction(req.user, 'venta_anulada', `Cobro #${req.params.id} de ${antes.total} € (${antes.method}) · motivo: ${sale.void_reason}`);
+    res.json(sale);
   } catch (err) {
     console.error(`[ventas] No se pudo borrar la venta ${req.params.id}:`, err);
     res.status(500).json({ error: 'No se pudo borrar el cobro. Reinicia el servidor e inténtalo de nuevo.' });
@@ -374,6 +481,87 @@ app.get('/api/reports/daily', (req, res) => {
     )
     .all();
   res.json(rows);
+});
+
+// ---------- Cierre de caja ----------
+
+function efectivoEsperado(day) {
+  return db
+    .prepare("SELECT COALESCE(SUM(total), 0) AS t FROM sales WHERE date(created_at) = ? AND method = 'efectivo' AND voided_at IS NULL")
+    .get(day).t;
+}
+
+app.get('/api/cash-closures', (req, res) => {
+  const day = String(req.query.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(400).json({ error: 'Fecha inválida.' });
+  res.json({
+    day,
+    expected: efectivoEsperado(day),
+    closure: db.prepare('SELECT * FROM cash_closures WHERE day = ?').get(day) || null,
+  });
+});
+
+app.post('/api/cash-closures', requireAdmin, (req, res) => {
+  const day = String(req.body.day || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(400).json({ error: 'Fecha inválida.' });
+  if (db.prepare('SELECT id FROM cash_closures WHERE day = ?').get(day)) {
+    return res.status(409).json({ error: 'Ese día ya tiene el cierre hecho.' });
+  }
+  const counted = Number(req.body.counted);
+  const openingFloat = Number(req.body.openingFloat || 0);
+  if (!Number.isFinite(counted) || counted < 0) return res.status(400).json({ error: 'Indica cuánto dinero has contado.' });
+  if (!Number.isFinite(openingFloat) || openingFloat < 0) return res.status(400).json({ error: 'El cambio inicial no es válido.' });
+  const expected = efectivoEsperado(day);
+  // Lo contado incluye el cambio con el que se empezó el día: hay que descontarlo.
+  const difference = Number((counted - openingFloat - expected).toFixed(2));
+  const note = String(req.body.note || '').trim().slice(0, 250);
+  const info = db
+    .prepare('INSERT INTO cash_closures (day, opening_float, expected, counted, difference, note, user_name) VALUES (?,?,?,?,?,?,?)')
+    .run(day, openingFloat, expected, counted, difference, note || null, req.user.name);
+  logAction(req.user, 'cierre_caja', `${day}: contado ${counted} €, esperado ${expected} €, descuadre ${difference} €`);
+  res.status(201).json(db.prepare('SELECT * FROM cash_closures WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// ---------- Exportación ----------
+
+function csvCell(value) {
+  const text = value == null ? '' : String(value);
+  return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+// Separador ';' y BOM: así Excel en español lo abre en columnas y con acentos.
+// Sin el BOM, Excel enseña "Padel Argonos" con los acentos rotos.
+const BOM_EXCEL = '\uFEFF';
+app.get('/api/reports/sales.csv', (req, res) => {
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  const validDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!validDate(from) || !validDate(to)) return res.status(400).json({ error: 'Indica el rango de fechas.' });
+  const rows = db
+    .prepare(
+      `SELECT s.id, s.created_at, s.method, s.total, s.amount_received, s.change_due, s.voided_at, s.void_reason,
+              i.product_name, i.qty, i.unit_price
+       FROM sales s LEFT JOIN sale_items i ON i.sale_id = s.id
+       WHERE date(s.created_at) BETWEEN ? AND ?
+       ORDER BY s.id, i.id`
+    )
+    .all(from, to);
+  const num = (n) => (n == null ? '' : Number(n).toFixed(2).replace('.', ','));
+  const lines = [
+    ['Cobro', 'Fecha', 'Hora', 'Metodo', 'Producto', 'Unidades', 'Precio unidad', 'Importe linea', 'Total cobro', 'Efectivo recibido', 'Cambio', 'Anulada', 'Motivo anulacion'].join(';'),
+  ];
+  for (const r of rows) {
+    const [fecha, hora] = String(r.created_at).split(' ');
+    lines.push([
+      r.id, fecha, hora || '', r.method, r.product_name || '', r.qty ?? '',
+      num(r.unit_price), num(r.unit_price != null && r.qty != null ? r.unit_price * r.qty : null),
+      num(r.total), num(r.amount_received), num(r.change_due),
+      r.voided_at ? 'Si' : 'No', r.void_reason || '',
+    ].map(csvCell).join(';'));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="ventas-${from}_${to}.csv"`);
+  res.send(BOM_EXCEL + lines.join('\r\n'));
 });
 
 function startServer(port = PORT, host = '0.0.0.0') {

@@ -35,19 +35,43 @@ el móvil o la tablet (la IP se ve con `ipconfig`).
 > habéis creado el PIN, crearlo antes que vosotros. Úsalo solo en una red de
 > confianza, no en la WiFi de invitados.
 
-## El PIN de administrador
+## Quién puede hacer qué
 
 Cobrar no pide nada: el cajero vende sin interrupciones. Sí piden PIN las
 acciones delicadas: crear, editar o borrar productos, ajustar stock, registrar
-entradas de mercancía, editar o anular cobros y abrir el cajón a mano.
+entradas de mercancía, editar o anular cobros, cerrar la caja y abrirla a mano.
 
-El PIN (4 a 8 números) se crea la primera vez que alguien intenta una de esas
-acciones, y se guarda cifrado con scrypt. **No hay forma de recuperarlo desde la
-aplicación.** Si se pierde, hay que borrar su fila de la base de datos:
+**Cada persona tiene su propio PIN** (4 a 8 números), que se da de alta en
+*Ajustes → Personas con acceso*. Así, cuando alguien anula un cobro o cambia un
+precio, queda registrado quién fue en *Ajustes → Registro de actividad*. Los PIN
+se guardan cifrados con scrypt.
+
+El primero se crea la primera vez que alguien intenta una acción protegida. Las
+bases de datos que venían del PIN único compartido lo convierten
+automáticamente en un usuario llamado "Administrador".
+
+Dar de baja a una persona no la borra: se desactiva, para que su nombre siga
+teniendo sentido en el registro de actividad.
+
+**Los PIN no se pueden recuperar desde la aplicación.** Si se pierden todos, hay
+que vaciar la tabla en la base de datos y volver a empezar:
 
 ```sql
+DELETE FROM users;
 DELETE FROM settings WHERE key = 'admin_pin';
 ```
+
+## Cierre de caja y exportación
+
+En *Historial*, además de los cobros del día con el desglose de efectivo y
+tarjeta:
+
+- **Cierre de caja**: al cerrar se introduce el cambio inicial y lo que se ha
+  contado en el cajón, y queda grabado el descuadre respecto a lo que decía el
+  sistema. Un día solo se puede cerrar una vez.
+- **Exportar ventas**: descarga un CSV del rango de fechas que elijas, con una
+  línea por producto vendido. Va con separador `;` y BOM para que Excel en
+  español lo abra directo, en columnas y con los acentos bien.
 
 ## Dónde viven los datos
 
@@ -67,12 +91,32 @@ código.
 ## Compilar el instalador
 
 ```bash
+npm install
 npm run dist
 ```
 
 Genera el `.exe` en `dist/` (unos 95 MB, por eso tampoco se sube al repo).
 El instalador no está firmado, así que Windows mostrará el aviso de "editor
 desconocido" la primera vez.
+
+> **Importante:** `better-sqlite3` es un módulo nativo y tiene que compilarse
+> para la versión de Electron, no para la de Node. El `postinstall` de este
+> proyecto ejecuta `electron-builder install-app-deps`, que se encarga de ello.
+> Si se salta ese paso, el instalador sale con el binario equivocado y la
+> aplicación muere al abrirse con el error `NODE_MODULE_VERSION`. Le pasó a la
+> versión 0.1.0.
+
+### Publicar una actualización
+
+```bash
+npm run publish
+```
+
+Sube el instalador a las releases de GitHub. Las cajas ya instaladas lo detectan
+al abrirse y ofrecen instalarlo. Requiere un token de GitHub con permiso sobre
+el repositorio en la variable de entorno `GH_TOKEN`, y que el repositorio sea
+público (si fuera privado, la app necesitaría llevar un token dentro, que
+cualquiera podría extraer del `.exe`).
 
 `initial-pos.db` es la base de datos semilla que la aplicación copia la primera
 vez que se abre. Contiene el catálogo de ejemplo y, ahora mismo, también unas
@@ -97,9 +141,10 @@ El montaje eléctrico, el pinout del cajón Tera 330R y el plan por fases están
 ## Pendiente
 
 - Conectar el ESP32 (fases 0 y 1 del análisis).
-- Usuarios y roles: hoy hay un único PIN compartido, así que una anulación no
-  deja constancia de quién la hizo.
-- Exportación de ventas a CSV.
+- Firmar el instalador para quitar el aviso de "editor desconocido".
+- Copias de seguridad fuera del PC del club: hoy la base de datos y sus copias
+  viven en el mismo equipo, así que un disco roto se lleva las dos cosas.
+- Impresión de tickets.
 - Confirmar con la gestoría si al emitir tickets al cliente aplica el reglamento
   de sistemas de facturación (Veri\*Factu), que no permite editar ni borrar
   registros como se hace ahora.

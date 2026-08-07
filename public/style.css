@@ -720,6 +720,35 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+/* ============ Cierre de caja ============ */
+
+.closure-state { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--ink-soft); font-size: 13.5px; }
+.closure-state strong { font-size: 19px; color: var(--green-900); }
+.closure-state small { color: var(--muted); font-size: 12px; }
+.closure-state.done { background: #e8f4ec; }
+.closure-state.done.warn { background: var(--red-soft); }
+.closure-state.done.warn strong { color: var(--red); }
+.closure-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 12px; align-items: end; margin-top: 14px; }
+
+.export-form { display: grid; grid-template-columns: repeat(2, minmax(0, 200px)) auto; gap: 12px; align-items: end; }
+
+/* ============ Ajustes: personas y registro ============ */
+
+.user-list { margin-top: 16px; }
+.user-row { display: grid; grid-template-columns: 1fr 90px auto; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.user-row:last-child { border-bottom: 0; }
+.user-row.inactive { opacity: .55; }
+.user-name { font-weight: 700; }
+.delete-user-btn { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 7px 10px; font-weight: 700; color: var(--red); }
+.delete-user-btn:hover { background: var(--red-soft); border-color: var(--red); }
+
+.audit-list { margin-top: 8px; max-height: 460px; overflow-y: auto; }
+.audit-row { display: grid; grid-template-columns: 118px 130px 165px 1fr; align-items: baseline; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.audit-row:last-child { border-bottom: 0; }
+.audit-row time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.audit-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audit-row.alert span { color: var(--red); font-weight: 700; }
+
 /* ============ Estados vacíos ============ */
 
 .empty-state {
@@ -764,6 +793,11 @@ button:focus-visible {
   .stock-entry-form .field:nth-child(3), .stock-entry-form .btn-primary { grid-column: 1 / -1; }
   .stock-entry-row { grid-template-columns: 82px 1fr 55px; }
   .stock-entry-row small { display: none; }
+
+  .closure-form, .export-form { grid-template-columns: 1fr 1fr; }
+  .closure-form .field:nth-child(3), .closure-form .btn-primary, .export-form .btn-primary { grid-column: 1 / -1; }
+  .audit-row { grid-template-columns: 92px 1fr; gap: 4px 10px; }
+  .audit-row small { grid-column: 1 / -1; white-space: normal; }
 
   .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
