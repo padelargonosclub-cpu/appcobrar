@@ -137,6 +137,20 @@ pierden a la vez la base de datos y sus copias.
 Ni `pos.db` ni las copias están en este repositorio: son datos del club, no
 código.
 
+## Probar sin tocar los datos del club
+
+```bash
+npm run demo
+```
+
+Abre la caja en `http://127.0.0.1:3100` contra una base de datos de juguete, para
+trastear a gusto: ventas inventadas, bonos de prueba, anulaciones. Los datos
+reales viven en `%LOCALAPPDATA%\PadelArgonos` y no se tocan. Con
+`npm run demo -- --limpiar` se vacía y empieza de cero.
+
+Es el mismo código que la aplicación; lo único que no trae es la ventana de
+escritorio ni el buscador de actualizaciones.
+
 ## Pruebas
 
 ```bash
