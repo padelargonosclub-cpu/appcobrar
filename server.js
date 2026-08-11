@@ -62,6 +62,23 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+CREATE TABLE IF NOT EXISTS bonos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  holder_name TEXT NOT NULL,
+  total_uses INTEGER NOT NULL,
+  price REAL NOT NULL,
+  sale_id INTEGER,
+  note TEXT,
+  voided_at TEXT,
+  void_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS bono_uses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bono_id INTEGER NOT NULL REFERENCES bonos(id),
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 CREATE TABLE IF NOT EXISTS cash_closures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   day TEXT NOT NULL UNIQUE,
@@ -461,6 +478,13 @@ app.delete('/api/sales/:id', requireAdmin, (req, res) => {
     const reason = String(req.body?.reason || 'Sin motivo indicado').trim().slice(0, 250);
     db.prepare("UPDATE sales SET voided_at = datetime('now','localtime'), void_reason = ? WHERE id = ?")
       .run(reason || 'Sin motivo indicado', req.params.id);
+    // Si ese cobro pagaba un bono, el bono deja de valer: si no, quedaría un
+    // bono en uso que el club nunca ha cobrado.
+    const bono = db.prepare('SELECT * FROM bonos WHERE sale_id = ? AND voided_at IS NULL').get(req.params.id);
+    if (bono) {
+      db.prepare("UPDATE bonos SET voided_at = datetime('now','localtime'), void_reason = ? WHERE id = ?")
+        .run(`Se anuló el cobro: ${reason}`, bono.id);
+    }
     return true;
   });
 
@@ -543,6 +567,117 @@ app.post('/api/cash-closures', requireAdmin, (req, res) => {
     .run(day, openingFloat, expected, counted, difference, note || null, req.user.name);
   logAction(req.user, 'cierre_caja', `${day}: contado ${counted} €, esperado ${expected} €, descuadre ${difference} €`);
   res.status(201).json(db.prepare('SELECT * FROM cash_closures WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// ---------- Bonos ----------
+
+// Los partidos gastados se cuentan a partir de sus registros en vez de llevar
+// un contador aparte: así no puede quedarse desincronizado, y además se sabe
+// cuándo se gastó cada uno.
+const SQL_BONOS = `
+  SELECT b.*, (SELECT COUNT(*) FROM bono_uses u WHERE u.bono_id = b.id) AS used
+  FROM bonos b`;
+
+function bonoConUsos(id) {
+  const bono = db.prepare(`${SQL_BONOS} WHERE b.id = ?`).get(id);
+  if (!bono) return null;
+  return {
+    ...bono,
+    remaining: Math.max(0, bono.total_uses - bono.used),
+    uses: db.prepare('SELECT * FROM bono_uses WHERE bono_id = ? ORDER BY id DESC').all(bono.id),
+  };
+}
+
+app.get('/api/bonos', (req, res) => {
+  const bonos = db.prepare(`${SQL_BONOS} ORDER BY b.id DESC`).all();
+  const usos = db.prepare('SELECT * FROM bono_uses WHERE bono_id = ? ORDER BY id DESC');
+  res.json(bonos.map((b) => ({ ...b, remaining: Math.max(0, b.total_uses - b.used), uses: usos.all(b.id) })));
+});
+
+// Vender un bono es cobrar: entra en la caja del día, en el arqueo y en el CSV.
+app.post('/api/bonos', (req, res) => {
+  const holderName = String(req.body.holderName || '').trim().slice(0, 80);
+  const totalUses = Number(req.body.totalUses);
+  const price = Number(req.body.price);
+  const { method } = req.body;
+  const note = String(req.body.note || '').trim().slice(0, 250);
+  if (!holderName) return res.status(400).json({ error: 'El bono tiene que ir a nombre de alguien.' });
+  if (!Number.isInteger(totalUses) || totalUses <= 0 || totalUses > 100) {
+    return res.status(400).json({ error: 'Los partidos deben ser un número entero entre 1 y 100.' });
+  }
+  if (!Number.isFinite(price) || price < 0) return res.status(400).json({ error: 'Precio inválido.' });
+  if (!['efectivo', 'tarjeta'].includes(method)) return res.status(400).json({ error: 'Método de pago inválido.' });
+  const received = method === 'efectivo' && req.body.amountReceived != null && req.body.amountReceived !== ''
+    ? Number(req.body.amountReceived) : null;
+  if (received != null && (!Number.isFinite(received) || received < price)) {
+    return res.status(400).json({ error: 'El efectivo recibido no cubre el precio del bono.' });
+  }
+  const change = received != null ? received - price : null;
+
+  const crear = db.transaction(() => {
+    const venta = db.prepare('INSERT INTO sales (total, method, amount_received, change_due) VALUES (?,?,?,?)')
+      .run(price, method, received, change);
+    // Sin product_id: no descuenta stock de nada y el editor de ventas no lo toca.
+    db.prepare('INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty) VALUES (?,?,?,?,?)')
+      .run(venta.lastInsertRowid, null, `Bono ${totalUses} partidos · ${holderName}`, price, 1);
+    const info = db.prepare('INSERT INTO bonos (holder_name, total_uses, price, sale_id, note) VALUES (?,?,?,?,?)')
+      .run(holderName, totalUses, price, venta.lastInsertRowid, note || null);
+    return info.lastInsertRowid;
+  });
+
+  try {
+    const id = crear();
+    if (method === 'efectivo') abrirCajon();
+    res.status(201).json(bonoConUsos(id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Gastar un partido no mueve dinero: ya se pagó al comprar el bono.
+app.post('/api/bonos/:id/uses', (req, res) => {
+  const gastar = db.transaction(() => {
+    const bono = bonoConUsos(req.params.id);
+    if (!bono) throw new Error('Bono no encontrado.');
+    if (bono.voided_at) throw new Error('Ese bono está anulado.');
+    if (bono.used >= bono.total_uses) throw new Error(`El bono de ${bono.holder_name} ya está agotado.`);
+    db.prepare('INSERT INTO bono_uses (bono_id, note) VALUES (?, ?)')
+      .run(bono.id, String(req.body?.note || '').trim().slice(0, 250) || null);
+    return bonoConUsos(bono.id);
+  });
+  try {
+    res.status(201).json(gastar());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Deshacer sí está protegido: es devolver un partido ya consumido.
+app.delete('/api/bonos/:id/uses/last', requireAdmin, (req, res) => {
+  const deshacer = db.transaction(() => {
+    const bono = bonoConUsos(req.params.id);
+    if (!bono) throw new Error('Bono no encontrado.');
+    const ultimo = db.prepare('SELECT * FROM bono_uses WHERE bono_id = ? ORDER BY id DESC LIMIT 1').get(bono.id);
+    if (!ultimo) throw new Error('Ese bono no tiene ningún partido apuntado.');
+    db.prepare('DELETE FROM bono_uses WHERE id = ?').run(ultimo.id);
+    logAction(req.user, 'bono_partido_deshecho', `${bono.holder_name}: se quita el partido apuntado el ${ultimo.created_at}`);
+    return bonoConUsos(bono.id);
+  });
+  try {
+    res.json(deshacer());
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/bonos/:id', requireAdmin, (req, res) => {
+  const bono = bonoConUsos(req.params.id);
+  if (!bono) return res.status(404).json({ error: 'Bono no encontrado.' });
+  const holderName = String(req.body.holderName || '').trim().slice(0, 80);
+  if (!holderName) return res.status(400).json({ error: 'El bono tiene que ir a nombre de alguien.' });
+  db.prepare('UPDATE bonos SET holder_name = ? WHERE id = ?').run(holderName, req.params.id);
+  logAction(req.user, 'bono_editado', `${bono.holder_name} -> ${holderName}`);
+  res.json(bonoConUsos(req.params.id));
 });
 
 // ---------- Exportación ----------

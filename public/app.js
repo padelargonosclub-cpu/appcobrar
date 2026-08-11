@@ -504,6 +504,128 @@ function cancelEdit() {
   renderVentaGrid();
 }
 
+// ---------- Bonos ----------
+
+let bonos = [];
+let bonoMethod = 'efectivo';
+
+// Sin tildes y en minúsculas: quien busca "gomez" tiene que encontrar a "Gómez".
+function normalizar(texto) {
+  return String(texto).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+async function loadBonos() {
+  const res = await fetch('/api/bonos');
+  bonos = await res.json();
+  renderBonos();
+}
+
+function renderBonos() {
+  const el = document.getElementById('bono-list');
+  const busqueda = normalizar(document.getElementById('bono-search').value.trim());
+  const verGastados = document.getElementById('bono-show-spent').checked;
+  const visibles = bonos
+    .filter((b) => verGastados || (!b.voided_at && b.remaining > 0))
+    .filter((b) => !busqueda || normalizar(b.holder_name).includes(busqueda));
+
+  if (visibles.length === 0) {
+    el.innerHTML = bonos.length === 0
+      ? '<div class="empty-state"><p>Todavía no hay bonos</p><small>Véndele el primero a alguien con el botón de arriba</small></div>'
+      : '<div class="empty-state"><p>Ningún bono coincide</p><small>Prueba con otro nombre o marca «ver agotados»</small></div>';
+    return;
+  }
+
+  el.innerHTML = visibles.map((b) => {
+    const agotado = b.remaining === 0;
+    const ultimo = b.uses[0];
+    const estado = b.voided_at ? 'anulado' : (agotado ? 'agotado' : (b.remaining <= 2 ? 'pocos' : 'activo'));
+    return `
+      <div class="bono-row ${estado}">
+        <div class="bono-info">
+          <span class="bono-name">${escapeHtml(b.holder_name)}</span>
+          <small>${b.voided_at
+            ? 'Anulado · ' + escapeHtml(b.void_reason || '')
+            : (ultimo ? 'Último partido: ' + new Date(ultimo.created_at.replace(' ', 'T')).toLocaleDateString('es-ES') : 'Sin estrenar')}${b.note ? ' · ' + escapeHtml(b.note) : ''}</small>
+        </div>
+        <div class="bono-count">
+          <strong>${b.remaining}</strong>
+          <small>de ${b.total_uses}</small>
+        </div>
+        <div class="bono-bar" aria-hidden="true"><span style="width: ${Math.round((b.used / b.total_uses) * 100)}%"></span></div>
+        <div class="bono-actions">
+          ${b.voided_at || agotado
+            ? `<span class="badge">${b.voided_at ? 'Anulado' : 'Agotado'}</span>`
+            : `<button class="btn-primary mark-bono-btn" data-id="${b.id}">Marcar partido</button>`}
+          ${b.used > 0 && !b.voided_at ? `<button class="undo-bono-btn" data-id="${b.id}" title="Quitar el último partido apuntado">Deshacer</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  el.querySelectorAll('.mark-bono-btn').forEach((b) => b.addEventListener('click', () => marcarPartido(Number(b.dataset.id))));
+  el.querySelectorAll('.undo-bono-btn').forEach((b) => b.addEventListener('click', () => deshacerPartido(Number(b.dataset.id))));
+}
+
+async function marcarPartido(id) {
+  const bono = bonos.find((b) => b.id === id);
+  const boton = document.querySelector(`.mark-bono-btn[data-id="${id}"]`);
+  if (boton) boton.disabled = true;
+  const res = await fetch(`/api/bonos/${id}/uses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (boton) boton.disabled = false;
+    showToast(data.error || 'No se pudo marcar el partido.', 'error');
+    return;
+  }
+  await loadBonos();
+  showToast(data.remaining === 0
+    ? `${bono.holder_name} ha gastado el último partido del bono.`
+    : `Partido marcado. A ${bono.holder_name} le quedan ${data.remaining}.`, data.remaining === 0 ? 'info' : 'success');
+}
+
+async function deshacerPartido(id) {
+  const bono = bonos.find((b) => b.id === id);
+  const confirmado = await showDialog({
+    title: 'Deshacer partido',
+    message: `Se quitará el último partido apuntado a ${bono.holder_name}, que volverá a tener ${bono.remaining + 1} disponibles.`,
+    confirmText: 'Deshacer', danger: true,
+  });
+  if (!confirmado) return;
+  const res = await fetch(`/api/bonos/${id}/uses/last`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo deshacer.', 'error');
+    return;
+  }
+  await loadBonos();
+  showToast(`Partido devuelto. A ${bono.holder_name} le quedan ${data.remaining}.`, 'success');
+}
+
+async function venderBono() {
+  const holderName = document.getElementById('bono-name').value.trim();
+  const totalUses = Number(document.getElementById('bono-uses').value);
+  const price = Number(document.getElementById('bono-price').value);
+  if (!holderName) {
+    showToast('El bono tiene que ir a nombre de alguien.', 'error');
+    return;
+  }
+  const res = await fetch('/api/bonos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ holderName, totalUses, price, method: bonoMethod, note: document.getElementById('bono-note').value.trim() }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo vender el bono.', 'error');
+    return;
+  }
+  document.getElementById('bono-name').value = '';
+  document.getElementById('bono-note').value = '';
+  document.getElementById('bono-form').hidden = true;
+  document.getElementById('toggle-bono-form').textContent = 'Vender bono';
+  await Promise.all([loadBonos(), loadSales()]);
+  showToast(`Bono de ${data.holder_name} cobrado: ${fmt(data.price)} por ${data.total_uses} partidos.`, 'success');
+}
+
 // ---------- Cierre de caja ----------
 
 async function loadClosure() {
@@ -744,6 +866,26 @@ document.getElementById('add-user').addEventListener('click', async () => {
   showToast(`${data.name} ya puede usar su PIN.`, 'success');
 });
 document.getElementById('load-audit').addEventListener('click', loadAudit);
+
+document.getElementById('toggle-bono-form').addEventListener('click', () => {
+  const form = document.getElementById('bono-form');
+  form.hidden = !form.hidden;
+  document.getElementById('toggle-bono-form').textContent = form.hidden ? 'Vender bono' : 'Cerrar';
+  if (!form.hidden) document.getElementById('bono-name').focus();
+});
+document.getElementById('save-bono').addEventListener('click', venderBono);
+document.getElementById('bono-search').addEventListener('input', renderBonos);
+document.getElementById('bono-show-spent').addEventListener('change', renderBonos);
+document.getElementById('bono-pay-efectivo').addEventListener('click', function () {
+  bonoMethod = 'efectivo';
+  this.classList.add('active');
+  document.getElementById('bono-pay-tarjeta').classList.remove('active');
+});
+document.getElementById('bono-pay-tarjeta').addEventListener('click', function () {
+  bonoMethod = 'tarjeta';
+  this.classList.add('active');
+  document.getElementById('bono-pay-efectivo').classList.remove('active');
+});
 document.getElementById('pin-required').addEventListener('change', (event) => togglePinMode(event.target.checked));
 
 document.getElementById('export-csv').addEventListener('click', () => {
@@ -782,11 +924,12 @@ document.querySelectorAll('[data-view]').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('[data-view]').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    ['catalogo', 'venta', 'historial', 'ajustes'].forEach((v) => {
+    ['catalogo', 'venta', 'historial', 'bonos', 'ajustes'].forEach((v) => {
       document.getElementById(`view-${v}`).hidden = v !== btn.dataset.view;
     });
     if (btn.dataset.view === 'historial') loadSales();
     if (btn.dataset.view === 'catalogo') loadStockEntries();
+    if (btn.dataset.view === 'bonos') loadBonos();
     if (btn.dataset.view === 'ajustes') { loadPinMode(); loadUsers(); }
   });
 });

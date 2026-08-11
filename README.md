@@ -84,6 +84,32 @@ DELETE FROM users;
 DELETE FROM settings WHERE key = 'admin_pin';
 ```
 
+## Bonos
+
+Un bono es un abono de partidos que el socio paga por adelantado (de partida,
+55 € por 10 partidos, aunque ambos valores se pueden cambiar en cada venta). Va
+a nombre de una persona y la pestaña *Bonos* lleva la cuenta de los que va
+gastando.
+
+El detalle que importa para que las cuentas cuadren:
+
+- **Vender el bono es un cobro**: entra en la caja del día, en el desglose de
+  efectivo/tarjeta, en el arqueo y en la exportación, como cualquier otra venta.
+- **Gastar un partido no mueve dinero**, porque ya se pagó al comprarlo. Si cada
+  partido consumido sumara al total del día, el arqueo dejaría de cuadrar con el
+  efectivo que hay en el cajón.
+
+Marcar un partido no pide PIN: es la acción del día a día. Deshacerlo sí, porque
+devuelve valor ya consumido, y queda en el registro de actividad con el nombre
+de quien lo hizo.
+
+Si se anula el cobro de un bono desde el historial, el bono queda anulado
+automáticamente: de lo contrario quedaría alguien jugando con un bono que el
+club nunca cobró.
+
+La búsqueda por nombre ignora tildes y mayúsculas, así que "gomez" encuentra a
+"Gómez".
+
 ## Cierre de caja y exportación
 
 En *Historial*, además de los cobros del día con el desglose de efectivo y

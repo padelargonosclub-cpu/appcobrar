@@ -166,6 +166,53 @@ async function main() {
   comprobar('marca las anuladas', csv.texto.includes(';Si;'));
   comprobar('una fecha inválida da 400', (await api('/api/reports/sales.csv?from=x&to=y')).status === 400);
 
+  console.log('\n# Bonos');
+  const sinNombre = await api('/api/bonos', { method: 'POST', body: { totalUses: 10, price: 55, method: 'efectivo' } });
+  comprobar('un bono sin nombre no se acepta', sinNombre.status === 400, `dio ${sinNombre.status}`);
+
+  const bono = await api('/api/bonos', { method: 'POST', body: { holderName: 'Pedro Gómez', totalUses: 10, price: 55, method: 'efectivo' } });
+  comprobar('se vende el bono', bono.status === 201, `dio ${bono.status}: ${bono.texto}`);
+  comprobar('nace con 10 partidos por gastar', bono.cuerpo.remaining === 10 && bono.cuerpo.used === 0, `${bono.cuerpo.used}/${bono.cuerpo.total_uses}`);
+
+  const ventaBono = (await api(`/api/sales/${bono.cuerpo.sale_id}`)).cuerpo;
+  comprobar('el bono se cobra como venta de 55', ventaBono.total === 55, `dio ${ventaBono.total}`);
+  comprobar('y aparece en el ticket con nombre', ventaBono.items[0].product_name.includes('Pedro Gómez'), ventaBono.items[0].product_name);
+  comprobar('sin producto asociado, para no tocar stock', ventaBono.items[0].product_id === null);
+
+  const cajaAntes = (await api(`/api/cash-closures?date=${HOY}`)).cuerpo.expected;
+  await api(`/api/bonos/${bono.cuerpo.id}/uses`, { method: 'POST', body: {} });
+  const trasGastar = await api(`/api/bonos/${bono.cuerpo.id}/uses`, { method: 'POST', body: {} });
+  comprobar('gastar dos partidos deja 8', trasGastar.cuerpo.remaining === 8, `quedan ${trasGastar.cuerpo.remaining}`);
+  comprobar('gastar partidos NO suma dinero a la caja del día',
+    (await api(`/api/cash-closures?date=${HOY}`)).cuerpo.expected === cajaAntes,
+    `antes ${cajaAntes}, ahora ${(await api(`/api/cash-closures?date=${HOY}`)).cuerpo.expected}`);
+  comprobar('queda apuntado cuándo se gastó cada uno', trasGastar.cuerpo.uses.length === 2);
+
+  comprobar('deshacer un partido exige PIN',
+    (await api(`/api/bonos/${bono.cuerpo.id}/uses/last`, { method: 'DELETE' })).status === 401);
+  const deshecho = await api(`/api/bonos/${bono.cuerpo.id}/uses/last`, { method: 'DELETE', pin: PIN_ANA });
+  comprobar('con PIN se devuelve el partido', deshecho.cuerpo.remaining === 9, `quedan ${deshecho.cuerpo.remaining}`);
+  comprobar('y queda registrado quién lo deshizo',
+    (await api('/api/audit', { pin: PIN_ANA })).cuerpo.some((e) => e.action === 'bono_partido_deshecho' && e.user_name === 'Ana'));
+
+  const bonoCorto = await api('/api/bonos', { method: 'POST', body: { holderName: 'Ana Ruiz', totalUses: 1, price: 6, method: 'tarjeta' } });
+  await api(`/api/bonos/${bonoCorto.cuerpo.id}/uses`, { method: 'POST', body: {} });
+  const agotado = await api(`/api/bonos/${bonoCorto.cuerpo.id}/uses`, { method: 'POST', body: {} });
+  comprobar('un bono agotado no deja gastar más', agotado.status === 400, `dio ${agotado.status}`);
+  comprobar('y lo dice con el nombre', agotado.cuerpo.error.includes('Ana Ruiz'), agotado.cuerpo.error);
+
+  // Si se anula el cobro, el bono no puede seguir vivo: seria jugar gratis.
+  const bonoAnulable = await api('/api/bonos', { method: 'POST', body: { holderName: 'Luis Cobo', totalUses: 10, price: 55, method: 'efectivo' } });
+  await api(`/api/sales/${bonoAnulable.cuerpo.sale_id}`, { method: 'DELETE', pin: PIN_ANA, body: { reason: 'se equivoco de persona' } });
+  const bonosTrasAnular = (await api('/api/bonos')).cuerpo.find((b) => b.id === bonoAnulable.cuerpo.id);
+  comprobar('anular el cobro anula el bono', Boolean(bonosTrasAnular.voided_at));
+  comprobar('y no deja gastarlo',
+    (await api(`/api/bonos/${bonoAnulable.cuerpo.id}/uses`, { method: 'POST', body: {} })).status === 400);
+
+  const renombrado = await api(`/api/bonos/${bono.cuerpo.id}`, { method: 'PUT', pin: PIN_ANA, body: { holderName: 'Pedro G. Ruiz' } });
+  comprobar('se puede corregir el nombre', renombrado.cuerpo.holder_name === 'Pedro G. Ruiz');
+  comprobar('sin perder los partidos gastados', renombrado.cuerpo.used === 1, `${renombrado.cuerpo.used}`);
+
   console.log('\n# Cajón y bajas');
   comprobar('abrir el cajón exige PIN', (await api('/api/cash-drawer/open', { method: 'POST' })).status === 401);
   comprobar('con PIN, abre', (await api('/api/cash-drawer/open', { method: 'POST', pin: PIN_ANA })).status === 200);

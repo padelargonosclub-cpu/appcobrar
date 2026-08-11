@@ -721,6 +721,53 @@ button:focus-visible {
   white-space: nowrap;
 }
 
+/* ============ Bonos ============ */
+
+.bono-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.bono-form .bono-pay { grid-column: span 2; }
+.bono-pay { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.bono-search { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.bono-search input[type="search"] {
+  flex: 1;
+  min-width: 200px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+}
+.bono-search input[type="search"]:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+
+.bono-list { margin-top: 6px; }
+.bono-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px 120px auto;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.bono-row:last-child { border-bottom: 0; }
+.bono-row.agotado, .bono-row.anulado { opacity: .6; }
+.bono-info { display: flex; flex-direction: column; min-width: 0; }
+.bono-name { font-weight: 700; font-size: 15px; }
+.bono-info small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bono-count { display: flex; align-items: baseline; gap: 5px; justify-self: end; }
+.bono-count strong { font-size: 23px; font-weight: 800; color: var(--green-900); font-variant-numeric: tabular-nums; }
+.bono-count small { color: var(--muted); font-size: 12px; }
+.bono-row.pocos .bono-count strong { color: #b4600c; }
+.bono-row.agotado .bono-count strong, .bono-row.anulado .bono-count strong { color: var(--muted); }
+.bono-bar { height: 7px; border-radius: 99px; background: var(--line-soft); overflow: hidden; }
+.bono-bar span { display: block; height: 100%; background: var(--primary); border-radius: 99px; }
+.bono-row.pocos .bono-bar span { background: #e07a1f; }
+.bono-row.agotado .bono-bar span, .bono-row.anulado .bono-bar span { background: var(--muted); }
+.bono-actions { display: flex; align-items: center; gap: 8px; }
+.bono-actions .btn-primary { padding: 10px 16px; }
+.undo-bono-btn { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 8px 11px; font-weight: 700; color: var(--ink-soft); }
+.undo-bono-btn:hover { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+
 /* ============ Cierre de caja ============ */
 
 .closure-state { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--ink-soft); font-size: 13.5px; }
@@ -797,6 +844,12 @@ button:focus-visible {
   .stock-entry-form .field:nth-child(3), .stock-entry-form .btn-primary { grid-column: 1 / -1; }
   .stock-entry-row { grid-template-columns: 82px 1fr 55px; }
   .stock-entry-row small { display: none; }
+
+  .bono-form { grid-template-columns: 1fr 1fr; }
+  .bono-form .field:first-child, .bono-form .field:nth-child(4), .bono-form .bono-pay, .bono-form .btn-primary { grid-column: 1 / -1; }
+  .bono-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+  .bono-bar, .bono-actions { grid-column: 1 / -1; }
+  .bono-actions .btn-primary { flex: 1; }
 
   .closure-form, .export-form { grid-template-columns: 1fr 1fr; }
   .closure-form .field:nth-child(3), .closure-form .btn-primary, .export-form .btn-primary { grid-column: 1 / -1; }
