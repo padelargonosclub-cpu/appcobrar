@@ -106,6 +106,17 @@ const productColumns = db.prepare('PRAGMA table_info(products)').all().map((c) =
 if (!productColumns.includes('unlimited_stock')) {
   db.exec('ALTER TABLE products ADD COLUMN unlimited_stock INTEGER NOT NULL DEFAULT 0');
 }
+// IVA: los precios del catálogo son con IVA incluido (lo que paga el cliente),
+// así que la base y la cuota se sacan hacia atrás desde el total.
+if (!productColumns.includes('vat_rate')) {
+  db.exec('ALTER TABLE products ADD COLUMN vat_rate REAL NOT NULL DEFAULT 21');
+}
+const saleItemColumns = db.prepare('PRAGMA table_info(sale_items)').all().map((c) => c.name);
+if (!saleItemColumns.includes('vat_rate')) {
+  // Se guarda en cada línea: si mañana cambia el tipo de un producto, las
+  // ventas de ayer tienen que seguir contando con el tipo que se les aplicó.
+  db.exec('ALTER TABLE sale_items ADD COLUMN vat_rate REAL NOT NULL DEFAULT 21');
+}
 const stockColumns = db.prepare('PRAGMA table_info(stock_entries)').all().map((c) => c.name);
 if (!stockColumns.includes('kind')) {
   db.exec("ALTER TABLE stock_entries ADD COLUMN kind TEXT NOT NULL DEFAULT 'entrada'");
@@ -115,6 +126,29 @@ if (!saleColumns.includes('amount_received')) db.exec('ALTER TABLE sales ADD COL
 if (!saleColumns.includes('change_due')) db.exec('ALTER TABLE sales ADD COLUMN change_due REAL');
 if (!saleColumns.includes('voided_at')) db.exec('ALTER TABLE sales ADD COLUMN voided_at TEXT');
 if (!saleColumns.includes('void_reason')) db.exec('ALTER TABLE sales ADD COLUMN void_reason TEXT');
+if (!saleColumns.includes('note')) db.exec('ALTER TABLE sales ADD COLUMN note TEXT');
+
+const TIPOS_IVA = [21, 10, 4, 0];
+
+function normalizarIva(valor, porDefecto = 21) {
+  const n = Number(valor);
+  return TIPOS_IVA.includes(n) ? n : porDefecto;
+}
+
+// Se agrupa por tipo antes de calcular, no línea a línea: es como lo pide
+// cualquier libro de IVA repercutido y evita arrastrar redondeos.
+function desgloseIva(day, hasta = day) {
+  const filas = db.prepare(
+    `SELECT i.vat_rate AS rate, SUM(i.unit_price * i.qty) AS total
+     FROM sale_items i JOIN sales s ON s.id = i.sale_id
+     WHERE date(s.created_at) BETWEEN ? AND ? AND s.voided_at IS NULL
+     GROUP BY i.vat_rate ORDER BY i.vat_rate DESC`
+  ).all(day, hasta);
+  return filas.map(({ rate, total }) => {
+    const base = Number((total / (1 + rate / 100)).toFixed(2));
+    return { rate, total: Number(total.toFixed(2)), base, cuota: Number((total - base).toFixed(2)) };
+  });
+}
 
 // Grips y bolas forman parte de una única categoría de material deportivo.
 db.prepare("UPDATE products SET category = 'Material deportivo' WHERE category IN ('Bolas', 'Grips')").run();
@@ -369,27 +403,29 @@ app.post('/api/products', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Faltan campos obligatorios (nombre, categoría, precio).' });
   }
   const info = db
-    .prepare('INSERT INTO products (name, category, price, stock, unlimited_stock) VALUES (?,?,?,?,?)')
-    .run(name, category, Number(price), Number(stock) || 0, unlimited_stock ? 1 : 0);
+    .prepare('INSERT INTO products (name, category, price, stock, unlimited_stock, vat_rate) VALUES (?,?,?,?,?,?)')
+    .run(name, category, Number(price), Number(stock) || 0, unlimited_stock ? 1 : 0, normalizarIva(req.body.vat_rate));
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
   logAction(req.user, 'producto_creado', `${product.name} · ${product.price} €`);
   res.status(201).json(product);
 });
 
 app.put('/api/products/:id', requireAdmin, (req, res) => {
-  const { name, category, price, unlimited_stock } = req.body;
+  const { name, category, price, unlimited_stock, vat_rate } = req.body;
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
-  db.prepare('UPDATE products SET name = ?, category = ?, price = ?, unlimited_stock = ? WHERE id = ?').run(
+  db.prepare('UPDATE products SET name = ?, category = ?, price = ?, unlimited_stock = ?, vat_rate = ? WHERE id = ?').run(
     name ?? product.name,
     category ?? product.category,
     price != null ? Number(price) : product.price,
     unlimited_stock == null ? product.unlimited_stock : (unlimited_stock ? 1 : 0),
+    vat_rate == null ? product.vat_rate : normalizarIva(vat_rate, product.vat_rate),
     req.params.id
   );
   const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   const cambioPrecio = updated.price !== product.price ? `precio ${product.price} € -> ${updated.price} €` : null;
-  logAction(req.user, 'producto_editado', [updated.name, cambioPrecio].filter(Boolean).join(' · '));
+  const cambioIva = updated.vat_rate !== product.vat_rate ? `IVA ${product.vat_rate}% -> ${updated.vat_rate}%` : null;
+  logAction(req.user, 'producto_editado', [updated.name, cambioPrecio, cambioIva].filter(Boolean).join(' · '));
   res.json(updated);
 });
 
@@ -463,9 +499,11 @@ app.post('/api/sales', (req, res) => {
 
   const getProduct = db.prepare('SELECT * FROM products WHERE id = ?');
   const updateStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
-  const insertSale = db.prepare('INSERT INTO sales (total, method, amount_received, change_due) VALUES (?, ?, ?, ?)');
+  // La nota sirve para cuadrar cobros con reservas de fuera ("Pedro, pista 2").
+  const note = String(req.body.note || '').trim().slice(0, 120);
+  const insertSale = db.prepare('INSERT INTO sales (total, method, amount_received, change_due, note) VALUES (?, ?, ?, ?, ?)');
   const insertItem = db.prepare(
-    'INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty) VALUES (?,?,?,?,?)'
+    'INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty, vat_rate) VALUES (?,?,?,?,?,?)'
   );
 
   const runSale = db.transaction(() => {
@@ -484,10 +522,10 @@ app.post('/api/sales', (req, res) => {
       throw new Error('El efectivo recibido no cubre el total.');
     }
     const change = method === 'efectivo' && received != null ? received - total : null;
-    const saleInfo = insertSale.run(total, method, received, change);
+    const saleInfo = insertSale.run(total, method, received, change, note || null);
     resolved.forEach(({ product, qty }) => {
       if (!product.unlimited_stock) updateStock.run(qty, product.id);
-      insertItem.run(saleInfo.lastInsertRowid, product.id, product.name, product.price, qty);
+      insertItem.run(saleInfo.lastInsertRowid, product.id, product.name, product.price, qty, product.vat_rate);
     });
     return saleInfo.lastInsertRowid;
   });
@@ -533,10 +571,10 @@ app.put('/api/sales/:id', requireAdmin, (req, res) => {
     db.prepare('UPDATE sales SET total = ?, method = ?, amount_received = ?, change_due = ? WHERE id = ?')
       .run(total, method, received, change, req.params.id);
     db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(req.params.id);
-    const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty) VALUES (?,?,?,?,?)');
+    const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty, vat_rate) VALUES (?,?,?,?,?,?)');
     for (const { product, qty } of resolved) {
       if (!product.unlimited_stock) db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, product.id);
-      insertItem.run(req.params.id, product.id, product.name, product.price, qty);
+      insertItem.run(req.params.id, product.id, product.name, product.price, qty, product.vat_rate);
     }
   });
   try {
@@ -643,6 +681,7 @@ function resumenCaja(day) {
     cashIn,
     cashOut,
     expected: Number((opening + sales + cashIn - cashOut).toFixed(2)),
+    vat: desgloseIva(day),
     opened: db.prepare("SELECT COUNT(*) AS c FROM cash_movements WHERE day = ? AND kind = 'apertura'").get(day).c > 0,
     movements: db.prepare('SELECT * FROM cash_movements WHERE day = ? ORDER BY id DESC').all(day),
     closure: db.prepare('SELECT * FROM cash_closures WHERE day = ?').get(day) || null,
@@ -747,6 +786,9 @@ app.post('/api/bonos', (req, res) => {
   const holderName = String(req.body.holderName || '').trim().slice(0, 80);
   const totalUses = Number(req.body.totalUses);
   const price = Number(req.body.price);
+  // Un bono de partidos es alquiler de pista, así que por defecto va al mismo
+  // tipo que las pistas; se puede indicar otro al venderlo.
+  const vatRate = normalizarIva(req.body.vatRate, 21);
   const { method } = req.body;
   const note = String(req.body.note || '').trim().slice(0, 250);
   if (!holderName) return res.status(400).json({ error: 'El bono tiene que ir a nombre de alguien.' });
@@ -766,8 +808,8 @@ app.post('/api/bonos', (req, res) => {
     const venta = db.prepare('INSERT INTO sales (total, method, amount_received, change_due) VALUES (?,?,?,?)')
       .run(price, method, received, change);
     // Sin product_id: no descuenta stock de nada y el editor de ventas no lo toca.
-    db.prepare('INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty) VALUES (?,?,?,?,?)')
-      .run(venta.lastInsertRowid, null, `Bono ${totalUses} partidos · ${holderName}`, price, 1);
+    db.prepare('INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty, vat_rate) VALUES (?,?,?,?,?,?)')
+      .run(venta.lastInsertRowid, null, `Bono ${totalUses} partidos · ${holderName}`, price, 1, vatRate);
     const info = db.prepare('INSERT INTO bonos (holder_name, total_uses, price, sale_id, note) VALUES (?,?,?,?,?)')
       .run(holderName, totalUses, price, venta.lastInsertRowid, note || null);
     return info.lastInsertRowid;
@@ -828,6 +870,23 @@ app.put('/api/bonos/:id', requireAdmin, (req, res) => {
   res.json(bonoConUsos(req.params.id));
 });
 
+// Desglose de IVA repercutido de un rango, que es lo que pide la gestoría.
+app.get('/api/reports/vat', (req, res) => {
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  const validDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!validDate(from) || !validDate(to)) return res.status(400).json({ error: 'Indica el rango de fechas.' });
+  const lineas = desgloseIva(from, to);
+  res.json({
+    from,
+    to,
+    lineas,
+    total: Number(lineas.reduce((s, l) => s + l.total, 0).toFixed(2)),
+    base: Number(lineas.reduce((s, l) => s + l.base, 0).toFixed(2)),
+    cuota: Number(lineas.reduce((s, l) => s + l.cuota, 0).toFixed(2)),
+  });
+});
+
 // ---------- Exportación ----------
 
 function csvCell(value) {
@@ -845,8 +904,8 @@ app.get('/api/reports/sales.csv', (req, res) => {
   if (!validDate(from) || !validDate(to)) return res.status(400).json({ error: 'Indica el rango de fechas.' });
   const rows = db
     .prepare(
-      `SELECT s.id, s.created_at, s.method, s.total, s.amount_received, s.change_due, s.voided_at, s.void_reason,
-              i.product_name, i.qty, i.unit_price
+      `SELECT s.id, s.created_at, s.method, s.total, s.amount_received, s.change_due, s.voided_at, s.void_reason, s.note,
+              i.product_name, i.qty, i.unit_price, i.vat_rate
        FROM sales s LEFT JOIN sale_items i ON i.sale_id = s.id
        WHERE date(s.created_at) BETWEEN ? AND ?
        ORDER BY s.id, i.id`
@@ -854,15 +913,21 @@ app.get('/api/reports/sales.csv', (req, res) => {
     .all(from, to);
   const num = (n) => (n == null ? '' : Number(n).toFixed(2).replace('.', ','));
   const lines = [
-    ['Cobro', 'Fecha', 'Hora', 'Metodo', 'Producto', 'Unidades', 'Precio unidad', 'Importe linea', 'Total cobro', 'Efectivo recibido', 'Cambio', 'Anulada', 'Motivo anulacion'].join(';'),
+    ['Cobro', 'Fecha', 'Hora', 'Metodo', 'Producto', 'Unidades', 'Precio unidad', 'Importe linea',
+      'IVA %', 'Base imponible', 'Cuota IVA',
+      'Total cobro', 'Efectivo recibido', 'Cambio', 'Anulada', 'Motivo anulacion', 'Nota'].join(';'),
   ];
   for (const r of rows) {
     const [fecha, hora] = String(r.created_at).split(' ');
+    const importe = r.unit_price != null && r.qty != null ? r.unit_price * r.qty : null;
+    // Precios con IVA incluido: la base se saca hacia atrás desde el importe.
+    const base = importe != null ? Number((importe / (1 + (r.vat_rate ?? 0) / 100)).toFixed(2)) : null;
     lines.push([
       r.id, fecha, hora || '', r.method, r.product_name || '', r.qty ?? '',
-      num(r.unit_price), num(r.unit_price != null && r.qty != null ? r.unit_price * r.qty : null),
+      num(r.unit_price), num(importe),
+      r.vat_rate != null ? String(r.vat_rate).replace('.', ',') : '', num(base), num(base != null ? importe - base : null),
       num(r.total), num(r.amount_received), num(r.change_due),
-      r.voided_at ? 'Si' : 'No', r.void_reason || '',
+      r.voided_at ? 'Si' : 'No', r.void_reason || '', r.note || '',
     ].map(csvCell).join(';'));
   }
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

@@ -85,6 +85,11 @@
 
         <button id="open-drawer-btn" class="open-drawer-btn" type="button">Abrir caja</button>
 
+        <label class="field sale-note-field">
+          <span>Nota del cobro (opcional)</span>
+          <input id="sale-note" type="text" maxlength="120" placeholder="Ej. Pedro, pista 2, reserva de tel.">
+        </label>
+
         <div id="cash-payment" class="cash-payment">
           <label class="field">
             <span>Efectivo recibido (€)</span>
@@ -152,8 +157,17 @@
           </select>
         </label>
         <label class="field">
-          <span>Precio (€)</span>
+          <span>Precio (€, IVA incluido)</span>
           <input id="new-price" type="number" step="0.10" min="0" placeholder="0,00">
+        </label>
+        <label class="field">
+          <span>IVA</span>
+          <select id="new-vat">
+            <option value="21">21 %</option>
+            <option value="10">10 %</option>
+            <option value="4">4 %</option>
+            <option value="0">Sin IVA</option>
+          </select>
         </label>
         <label class="field">
           <span>Stock</span>
@@ -179,6 +193,7 @@
         <span>Producto</span>
         <span>Categoría</span>
         <span class="th-num">Precio €</span>
+        <span class="th-num">IVA</span>
         <span class="th-num">Stock / infinito</span>
         <span></span>
       </div>
@@ -229,6 +244,7 @@
         <button id="toggle-closure" class="btn-secondary" type="button">Hacer el cierre</button>
       </div>
       <div id="cash-breakdown" class="cash-breakdown"></div>
+      <div id="vat-breakdown" class="vat-breakdown"></div>
 
       <div id="cash-buttons-wrap" class="cash-buttons">
         <button id="open-cash-btn" class="btn-secondary" type="button">Declarar apertura</button>

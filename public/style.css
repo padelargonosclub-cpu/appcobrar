@@ -541,7 +541,7 @@ button:focus-visible {
 
 .catalog-cols {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 150px 105px 130px 40px;
+  grid-template-columns: minmax(170px, 1fr) 135px 100px 78px 125px 40px;
   gap: 12px;
   align-items: center;
 }
@@ -780,6 +780,11 @@ button:focus-visible {
 .cash-line.total span { color: var(--green-900); font-weight: 700; }
 .cash-line.total strong { font-size: 21px; color: var(--green-900); }
 
+.vat-breakdown { margin: 0 0 16px; }
+.vat-breakdown h3 { font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.sale-note { color: var(--primary-dark); font-style: normal; font-weight: 600; }
+.sale-note-field { margin-bottom: 10px; }
+
 .cash-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .movement-form { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr) auto auto; gap: 10px; align-items: end; margin-bottom: 14px; padding: 14px; border-radius: var(--radius-sm); background: var(--primary-soft); }
 
@@ -878,7 +883,7 @@ button:focus-visible {
 
   .catalog-head { display: none; }
   .catalog-row .badge { display: none; }
-  .catalog-cols { grid-template-columns: minmax(130px, 1fr) 92px 112px 38px; gap: 8px; }
+  .catalog-cols { grid-template-columns: minmax(120px, 1fr) 78px 100px 38px; gap: 8px; }
   .stock-entry-form { grid-template-columns: 1fr 1fr; }
   .stock-entry-form .field:nth-child(3), .stock-entry-form .btn-primary { grid-column: 1 / -1; }
   .stock-entry-row { grid-template-columns: 82px 1fr 55px; }

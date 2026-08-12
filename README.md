@@ -123,6 +123,26 @@ indistinguible de un descuadre.
 Si esto no se apunta, el stock del sistema y el del almacén se van separando
 hasta que el catálogo deja de servir para reponer.
 
+## IVA
+
+Cada producto lleva su tipo de IVA (21 %, 10 %, 4 % o sin IVA), que se elige al
+darlo de alta y se puede cambiar después en el catálogo. Las pistas y las
+bebidas no tienen por qué ir al mismo tipo.
+
+> **Los precios del catálogo son con IVA incluido**, es decir, lo que paga el
+> cliente. La base imponible y la cuota se calculan hacia atrás desde ese
+> importe. Qué tipo corresponde a cada cosa es una cuestión para la gestoría,
+> no para este programa.
+
+El tipo **se guarda en cada línea de venta** en el momento de cobrar. Si mañana
+cambias el IVA de un producto, las ventas de ayer siguen contando con el tipo
+que se les aplicó: cambiar un precio no debe reescribir el pasado.
+
+El desglose aparece en el día (Historial), en la exportación a CSV con sus
+columnas de base y cuota, y en `GET /api/reports/vat?from=&to=` para un rango.
+Se agrupa por tipo antes de calcular, no línea a línea, que es como se presenta
+en un libro de IVA repercutido.
+
 ## Cierre de caja y exportación
 
 En *Historial*, además de los cobros del día con el desglose de efectivo y

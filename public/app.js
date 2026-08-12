@@ -238,6 +238,9 @@ function renderCatalog() {
       <input type="text" class="name-input" data-id="${p.id}" value="${escapeHtml(p.name)}" aria-label="Nombre de ${escapeHtml(p.name)}">
       <span class="badge" data-cat="${escapeHtml(p.category)}">${escapeHtml(p.category)}</span>
       <input type="number" step="0.10" min="0" class="num price-input" data-id="${p.id}" value="${p.price.toFixed(2)}" aria-label="Precio de ${escapeHtml(p.name)}">
+      <select class="vat-input" data-id="${p.id}" aria-label="IVA de ${escapeHtml(p.name)}">
+        ${[21, 10, 4, 0].map((t) => `<option value="${t}"${Number(p.vat_rate) === t ? ' selected' : ''}>${t === 0 ? 'Sin IVA' : t + ' %'}</option>`).join('')}
+      </select>
       <span class="stock-editor"><input type="number" step="1" min="0" class="num stock-input" data-id="${p.id}" value="${p.stock}" ${p.unlimited_stock ? 'disabled' : ''} aria-label="Stock de ${escapeHtml(p.name)}"><label title="Stock infinito"><input type="checkbox" class="unlimited-input" data-id="${p.id}" ${p.unlimited_stock ? 'checked' : ''}> ∞</label></span>
       <button class="del-btn" data-id="${p.id}" title="Eliminar producto" aria-label="Eliminar ${escapeHtml(p.name)}">${ICON_TRASH}</button>
     `;
@@ -281,6 +284,16 @@ function renderCatalog() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stock: Number(inp.value), reason: 'ajuste manual' }),
+      });
+      await loadProducts();
+    });
+  });
+  el.querySelectorAll('.vat-input').forEach((sel) => {
+    sel.addEventListener('change', async () => {
+      const p = findProduct(Number(sel.dataset.id));
+      await fetch(`/api/products/${p.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vat_rate: Number(sel.value) }),
       });
       await loadProducts();
     });
@@ -421,6 +434,7 @@ async function checkout() {
   const body = {
     items: cart.map((c) => ({ productId: c.id, qty: c.qty })),
     method,
+    note: document.getElementById('sale-note').value.trim(),
     amountReceived: method === 'efectivo' && document.getElementById('cash-received').value.trim() !== ''
       ? Number(document.getElementById('cash-received').value)
       : null,
@@ -446,6 +460,7 @@ async function checkout() {
   editingSaleId = null;
   editingOriginal.clear();
   document.getElementById('cash-received').value = '';
+  document.getElementById('sale-note').value = '';
   document.querySelector('#checkout-btn span:first-child').textContent = 'Cobrar';
   document.getElementById('cancel-edit-btn').hidden = true;
   await loadProducts();
@@ -474,7 +489,8 @@ function renderHistorial(sales) {
       hour: '2-digit',
       minute: '2-digit',
     });
-    const items = s.items.map((i) => `${i.qty}× ${escapeHtml(i.product_name)}`).join(', ');
+    const items = s.items.map((i) => `${i.qty}× ${escapeHtml(i.product_name)}`).join(', ')
+      + (s.note ? ` <em class="sale-note">· ${escapeHtml(s.note)}</em>` : '');
     row.innerHTML = `
       <span class="time">${time}</span>
       <span class="badge method-badge ${s.voided_at ? 'anulada' : s.method}">${s.voided_at ? 'Anulada' : s.method}</span>
@@ -713,6 +729,14 @@ function renderCashDay(caja) {
     caja.cashOut ? linea('Dinero sacado', -caja.cashOut, 'salida') : '',
     linea('Debería haber en el cajón', caja.expected, 'total'),
   ].join('');
+
+  // Desglose de IVA del día: es lo que pide la gestoría y sale de las líneas
+  // de venta, no del total, porque cada producto puede ir a un tipo distinto.
+  document.getElementById('vat-breakdown').innerHTML = (caja.vat || []).length === 0
+    ? ''
+    : '<h3>IVA repercutido del día</h3>' + caja.vat.map((v) =>
+      `<div class="cash-line"><span>${v.rate === 0 ? 'Sin IVA' : v.rate + ' %'} · base ${fmt(v.base)}</span><strong>${fmt(v.cuota)}</strong></div>`
+    ).join('');
 
   // Los movimientos de un día ya cerrado se consultan, no se tocan.
   document.getElementById('cash-buttons-wrap').hidden = cerrado;
@@ -955,11 +979,12 @@ document.getElementById('add-product').addEventListener('click', async () => {
   const price = Number(document.getElementById('new-price').value) || 0;
   const stock = Number(document.getElementById('new-stock').value) || 0;
   const unlimited_stock = document.getElementById('new-unlimited').checked;
+  const vat_rate = Number(document.getElementById('new-vat').value);
   if (!name) return;
   await fetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, category, price, stock, unlimited_stock }),
+    body: JSON.stringify({ name, category, price, stock, unlimited_stock, vat_rate }),
   });
   document.getElementById('new-name').value = '';
   document.getElementById('new-price').value = '';

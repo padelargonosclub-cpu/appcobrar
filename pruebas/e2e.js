@@ -191,7 +191,8 @@ async function main() {
     csv.bytes[0] === 0xef && csv.bytes[1] === 0xbb && csv.bytes[2] === 0xbf,
     [...csv.bytes.subarray(0, 3)].join(' '));
   comprobar('se descarga como archivo', (csv.headers.get('content-disposition') || '').includes('attachment'));
-  comprobar('usa ; como separador', csv.texto.split('\n')[0].split(';').length === 13);
+  comprobar('usa ; como separador', csv.texto.split('\n')[0].split(';').length === 17,
+    `${csv.texto.split('\n')[0].split(';').length} columnas`);
   comprobar('los decimales van con coma', csv.texto.includes('1,80') || csv.texto.includes('18,00'));
   comprobar('marca las anuladas', csv.texto.includes(';Si;'));
   comprobar('una fecha inválida da 400', (await api('/api/reports/sales.csv?from=x&to=y')).status === 400);
@@ -242,6 +243,56 @@ async function main() {
   const renombrado = await api(`/api/bonos/${bono.cuerpo.id}`, { method: 'PUT', pin: PIN_ANA, body: { holderName: 'Pedro G. Ruiz' } });
   comprobar('se puede corregir el nombre', renombrado.cuerpo.holder_name === 'Pedro G. Ruiz');
   comprobar('sin perder los partidos gastados', renombrado.cuerpo.used === 1, `${renombrado.cuerpo.used}`);
+
+  console.log('\n# IVA');
+  comprobar('los productos nacen al 21 % si no se dice otra cosa',
+    (await api('/api/products')).cuerpo.every((p) => p.vat_rate === 21));
+
+  // Una pista a 21 % y una bebida a 10 %, con precios redondos para poder
+  // comprobar la base a mano.
+  const pista = (await api('/api/products', { method: 'POST', pin: PIN_ANA, body: { name: 'Pista IVA', category: 'Alquileres', price: 12.1, unlimited_stock: true, vat_rate: 21 } })).cuerpo;
+  const refresco = (await api('/api/products', { method: 'POST', pin: PIN_ANA, body: { name: 'Refresco IVA', category: 'Bebidas', price: 11, stock: 50, vat_rate: 10 } })).cuerpo;
+  comprobar('se guarda el tipo de cada producto', pista.vat_rate === 21 && refresco.vat_rate === 10);
+  comprobar('un tipo inventado no se cuela',
+    (await api(`/api/products/${refresco.id}`, { method: 'PUT', pin: PIN_ANA, body: { vat_rate: 7 } })).cuerpo.vat_rate === 10);
+
+  const AYER_IVA = AYER;
+  await api('/api/sales', { method: 'POST', body: { items: [{ productId: pista.id, qty: 1 }], method: 'tarjeta', note: 'Pedro, reserva de telefono' } });
+  await api('/api/sales', { method: 'POST', body: { items: [{ productId: refresco.id, qty: 1 }], method: 'efectivo' } });
+
+  const iva = await api(`/api/reports/vat?from=${AYER_IVA}&to=${HOY}`);
+  const al21 = iva.cuerpo.lineas.find((l) => l.rate === 21);
+  const al10 = iva.cuerpo.lineas.find((l) => l.rate === 10);
+  // El 10 % está aislado (solo el refresco), así que se puede comprobar exacto:
+  // 11,00 con IVA incluido -> base 10,00 y cuota 1,00.
+  comprobar('11,00 al 10 % da base 10,00', al10 && al10.base === 10, al10 && `base ${al10.base}`);
+  comprobar('y cuota 1,00', al10 && al10.cuota === 1, al10 && `cuota ${al10.cuota}`);
+  // El 21 % arrastra el resto de ventas del día, así que se comprueba la
+  // invariante en cada grupo en vez de un número concreto.
+  comprobar('en cada tipo, base + cuota es el total cobrado',
+    iva.cuerpo.lineas.every((l) => Math.abs(l.base + l.cuota - l.total) < 0.005),
+    JSON.stringify(iva.cuerpo.lineas));
+  comprobar('y la cuota es el porcentaje que toca sobre la base',
+    iva.cuerpo.lineas.every((l) => Math.abs(l.cuota - l.base * l.rate / 100) <= 0.01),
+    JSON.stringify(iva.cuerpo.lineas));
+  comprobar('el total del informe cuadra con la suma de sus tipos',
+    Math.abs(iva.cuerpo.total - iva.cuerpo.lineas.reduce((s, l) => s + l.total, 0)) < 0.005);
+  comprobar('los dos tipos salen separados, no mezclados', iva.cuerpo.lineas.length >= 2);
+
+  const ivaDia = (await api(`/api/cash-closures?date=${HOY}`)).cuerpo.vat;
+  comprobar('el día trae su propio desglose de IVA', Array.isArray(ivaDia) && ivaDia.length >= 2);
+
+  const csvIva = await api(`/api/reports/sales.csv?from=${AYER_IVA}&to=${HOY}`);
+  comprobar('el CSV lleva columnas de IVA, base y cuota',
+    csvIva.texto.split('\n')[0].includes('IVA %') && csvIva.texto.split('\n')[0].includes('Base imponible') && csvIva.texto.split('\n')[0].includes('Cuota IVA'));
+  comprobar('y la nota del cobro, para cuadrar con Playtomic', csvIva.texto.includes('Pedro, reserva de telefono'));
+
+  // El tipo se congela en la venta: cambiarlo despues no reescribe el pasado.
+  await api(`/api/products/${refresco.id}`, { method: 'PUT', pin: PIN_ANA, body: { vat_rate: 21 } });
+  const ivaDespues = await api(`/api/reports/vat?from=${AYER_IVA}&to=${HOY}`);
+  comprobar('cambiar el IVA de un producto no reescribe las ventas ya hechas',
+    ivaDespues.cuerpo.lineas.find((l) => l.rate === 10)?.cuota === 1,
+    JSON.stringify(ivaDespues.cuerpo.lineas));
 
   console.log('\n# Stock que se va sin venderse');
   const antesStock = (await api('/api/products')).cuerpo.find((p) => p.id === agua.id).stock;
