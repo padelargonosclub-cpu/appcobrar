@@ -770,6 +770,31 @@ button:focus-visible {
 
 /* ============ Cierre de caja ============ */
 
+.cash-breakdown { margin-bottom: 14px; }
+.cash-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+.cash-line span { color: var(--ink-soft); }
+.cash-line strong { font-variant-numeric: tabular-nums; }
+.cash-line.salida strong { color: var(--red); }
+.cash-line.pendiente strong { color: var(--muted); font-weight: 600; font-style: italic; }
+.cash-line.total { border-bottom: 0; border-top: 2px solid var(--line); margin-top: 4px; padding-top: 11px; font-size: 16px; }
+.cash-line.total span { color: var(--green-900); font-weight: 700; }
+.cash-line.total strong { font-size: 21px; color: var(--green-900); }
+
+.cash-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.movement-form { display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr) auto auto; gap: 10px; align-items: end; margin-bottom: 14px; padding: 14px; border-radius: var(--radius-sm); background: var(--primary-soft); }
+
+.movement-list { margin-bottom: 16px; }
+.movement-row { display: grid; grid-template-columns: 50px 82px 88px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.movement-row:last-child { border-bottom: 0; }
+.movement-row time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.movement-row strong { font-variant-numeric: tabular-nums; }
+.movement-row.salida strong { color: var(--red); }
+.movement-row.entrada strong, .movement-row.apertura strong { color: var(--primary-dark); }
+.movement-row small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.del-movement-btn { border: 0; background: none; color: var(--muted); font-size: 15px; line-height: 1; padding: 4px 7px; border-radius: 6px; }
+.del-movement-btn:hover { background: var(--red-soft); color: var(--red); }
+
+.closure-state.aviso { background: var(--red-soft); color: var(--red); }
 .closure-state { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--ink-soft); font-size: 13.5px; }
 .closure-state strong { font-size: 19px; color: var(--green-900); }
 .closure-state small { color: var(--muted); font-size: 12px; }
@@ -852,7 +877,11 @@ button:focus-visible {
   .bono-actions .btn-primary { flex: 1; }
 
   .closure-form, .export-form { grid-template-columns: 1fr 1fr; }
-  .closure-form .field:nth-child(3), .closure-form .btn-primary, .export-form .btn-primary { grid-column: 1 / -1; }
+  .closure-form .field:nth-child(2), .closure-form .btn-primary, .export-form .btn-primary { grid-column: 1 / -1; }
+  .movement-form { grid-template-columns: 1fr 1fr; }
+  .movement-form .field:nth-child(2) { grid-column: 1 / -1; }
+  .movement-row { grid-template-columns: 46px 72px 1fr auto; }
+  .movement-row small { grid-column: 1 / -1; white-space: normal; }
   .audit-row { grid-template-columns: 92px 1fr; gap: 4px 10px; }
   .audit-row small { grid-column: 1 / -1; white-space: normal; }
 

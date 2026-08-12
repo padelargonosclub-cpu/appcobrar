@@ -215,9 +215,25 @@
         <div><h2>Cierre de caja</h2><span class="hint">Cuenta el cajón al cerrar y deja constancia del descuadre</span></div>
         <button id="toggle-closure" class="btn-secondary" type="button">Hacer el cierre</button>
       </div>
+      <div id="cash-breakdown" class="cash-breakdown"></div>
+
+      <div id="cash-buttons-wrap" class="cash-buttons">
+        <button id="open-cash-btn" class="btn-secondary" type="button">Declarar apertura</button>
+        <button id="cash-out-btn" class="btn-secondary" type="button">Sacar dinero</button>
+        <button id="cash-in-btn" class="btn-secondary" type="button">Meter dinero</button>
+      </div>
+
+      <div id="movement-form" class="movement-form" hidden>
+        <label class="field"><span id="movement-amount-label">Importe (€)</span><input id="movement-amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00"></label>
+        <label class="field"><span>Motivo</span><input id="movement-reason" type="text" maxlength="250" placeholder="Ej. compra de hielo"></label>
+        <button id="save-movement" class="btn-primary" type="button">Guardar</button>
+        <button id="cancel-movement" class="btn-secondary" type="button">Cancelar</button>
+      </div>
+
+      <div id="movement-list" class="movement-list"></div>
+
       <div id="closure-state" class="closure-state"></div>
       <div id="closure-form" class="closure-form" hidden>
-        <label class="field"><span>Cambio inicial (€)</span><input id="closure-float" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00"></label>
         <label class="field"><span>Contado en el cajón (€)</span><input id="closure-counted" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00"></label>
         <label class="field"><span>Nota opcional</span><input id="closure-note" type="text" maxlength="250" placeholder="Ej. faltaba cambio"></label>
         <button id="save-closure" class="btn-primary" type="button">Guardar cierre</button>

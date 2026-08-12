@@ -53,6 +53,8 @@ window.fetch = async function protectedFetch(input, options = {}) {
     || (url === '/api/stock-entries' && methodName === 'POST')
     || (url === '/api/cash-drawer/open' && methodName === 'POST')
     || (url === '/api/cash-closures' && methodName === 'POST')
+    || (url === '/api/cash-movements' && methodName === 'POST')
+    || (/^\/api\/cash-movements\/\d+$/.test(url) && methodName === 'DELETE')
     || url.startsWith('/api/users')
     || url === '/api/audit'
     || (url === '/api/admin/pin-mode' && methodName === 'POST');
@@ -628,32 +630,145 @@ async function venderBono() {
 
 // ---------- Cierre de caja ----------
 
+let movementKind = null;
+
 async function loadClosure() {
   const day = document.getElementById('history-date').value || localDateKey();
   const res = await fetch(`/api/cash-closures?date=${day}`);
-  const data = await res.json();
+  renderCashDay(await res.json());
+}
+
+function renderCashDay(caja) {
+  const cerrado = Boolean(caja.closure);
+  const linea = (etiqueta, valor, clase = '') =>
+    `<div class="cash-line ${clase}"><span>${etiqueta}</span><strong>${fmt(valor)}</strong></div>`;
+
+  document.getElementById('cash-breakdown').innerHTML = [
+    caja.opened
+      ? linea('Con lo que se abrió', caja.opening)
+      : '<div class="cash-line pendiente"><span>Con lo que se abrió</span><strong>sin declarar</strong></div>',
+    linea('Ventas en efectivo', caja.sales),
+    caja.cashIn ? linea('Dinero metido', caja.cashIn) : '',
+    caja.cashOut ? linea('Dinero sacado', -caja.cashOut, 'salida') : '',
+    linea('Debería haber en el cajón', caja.expected, 'total'),
+  ].join('');
+
+  // Los movimientos de un día ya cerrado se consultan, no se tocan.
+  document.getElementById('cash-buttons-wrap').hidden = cerrado;
+  document.getElementById('open-cash-btn').hidden = caja.opened;
+  if (cerrado) {
+    document.getElementById('movement-form').hidden = true;
+    movementKind = null;
+  }
+
+  document.getElementById('movement-list').innerHTML = caja.movements.map((m) => {
+    const hora = new Date(m.created_at.replace(' ', 'T')).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    const etiqueta = { apertura: 'Apertura', entrada: 'Entrada', salida: 'Salida' }[m.kind] || m.kind;
+    return `<div class="movement-row ${m.kind}">
+      <time>${hora}</time>
+      <span class="badge">${etiqueta}</span>
+      <strong>${m.kind === 'salida' ? '−' : '+'}${fmt(m.amount)}</strong>
+      <small>${escapeHtml(m.reason || 'Sin motivo')}${m.user_name ? ' · ' + escapeHtml(m.user_name) : ''}</small>
+      ${cerrado ? '' : `<button class="del-movement-btn" data-id="${m.id}" title="Borrar movimiento">✕</button>`}
+    </div>`;
+  }).join('');
+  document.getElementById('movement-list').querySelectorAll('.del-movement-btn')
+    .forEach((b) => b.addEventListener('click', () => borrarMovimiento(Number(b.dataset.id))));
+
   const state = document.getElementById('closure-state');
   const toggle = document.getElementById('toggle-closure');
-  if (data.closure) {
-    const c = data.closure;
+  if (cerrado) {
+    const c = caja.closure;
     const signo = c.difference > 0 ? 'Sobra' : (c.difference < 0 ? 'Falta' : 'Cuadra');
     state.className = `closure-state done${c.difference === 0 ? '' : ' warn'}`;
     state.innerHTML = `<strong>${signo} ${fmt(Math.abs(c.difference))}</strong>
-      <span>Esperado ${fmt(c.expected)} · contado ${fmt(c.counted)} · cambio inicial ${fmt(c.opening_float)}</span>
+      <span>Debía haber ${fmt(c.expected)} y se contaron ${fmt(c.counted)}</span>
       <small>Cerrado por ${escapeHtml(c.user_name || 'desconocido')}${c.note ? ' · ' + escapeHtml(c.note) : ''}</small>`;
     toggle.hidden = true;
     document.getElementById('closure-form').hidden = true;
   } else {
     state.className = 'closure-state';
-    state.innerHTML = `<span>Este día no tiene cierre. Según el sistema deberían salir <strong>${fmt(data.expected || 0)}</strong> en efectivo.</span>`;
+    state.innerHTML = caja.opened
+      ? '<span>Este día todavía no está cerrado.</span>'
+      : '<span>La caja de este día no se ha abierto: sin declarar el fondo inicial, el descuadre del cierre no significará nada.</span>';
+    if (!caja.opened) state.className = 'closure-state aviso';
     toggle.hidden = false;
   }
+}
+
+function pedirMovimiento(kind) {
+  movementKind = kind;
+  const form = document.getElementById('movement-form');
+  const etiquetas = {
+    apertura: ['Dinero con el que se abre (€)', 'Ej. fondo de siempre'],
+    entrada: ['Dinero que se mete (€)', 'Ej. cambio traído del banco'],
+    salida: ['Dinero que se saca (€)', 'Ej. compra de hielo'],
+  };
+  document.getElementById('movement-amount-label').textContent = etiquetas[kind][0];
+  document.getElementById('movement-reason').placeholder = etiquetas[kind][1];
+  document.getElementById('movement-reason').value = '';
+  form.hidden = false;
+  if (kind === 'apertura') {
+    nativeFetch('/api/cash-movements/last-opening')
+      .then((r) => r.json())
+      .then(({ amount }) => { if (amount != null) document.getElementById('movement-amount').value = amount; });
+  } else {
+    document.getElementById('movement-amount').value = '';
+  }
+  setTimeout(() => document.getElementById('movement-amount').focus(), 0);
+}
+
+async function guardarMovimiento() {
+  const day = document.getElementById('history-date').value || localDateKey();
+  const amount = Number(document.getElementById('movement-amount').value);
+  const reason = document.getElementById('movement-reason').value.trim();
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('Pon un importe mayor que cero.', 'error');
+    return;
+  }
+  if (movementKind === 'salida' && !reason) {
+    showToast('Di para qué sacas el dinero: es lo que justifica que falte.', 'error');
+    return;
+  }
+  const res = await fetch('/api/cash-movements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ day, kind: movementKind, amount, reason }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo guardar el movimiento.', 'error');
+    return;
+  }
+  document.getElementById('movement-form').hidden = true;
+  document.getElementById('movement-amount').value = '';
+  document.getElementById('movement-reason').value = '';
+  const hecho = { apertura: 'Caja abierta', entrada: 'Dinero metido', salida: 'Dinero sacado' }[movementKind];
+  movementKind = null;
+  await loadClosure();
+  showToast(`${hecho}: ${fmt(amount)}.`, 'success');
+}
+
+async function borrarMovimiento(id) {
+  const confirmado = await showDialog({
+    title: 'Borrar movimiento',
+    message: 'Se quitará de las cuentas del día. Si el dinero se movió de verdad, el cierre dejará de cuadrar.',
+    confirmText: 'Borrar', danger: true,
+  });
+  if (!confirmado) return;
+  const res = await fetch(`/api/cash-movements/${id}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo borrar.', 'error');
+    return;
+  }
+  await loadClosure();
+  showToast('Movimiento borrado.', 'success');
 }
 
 async function saveClosure() {
   const day = document.getElementById('history-date').value || localDateKey();
   const counted = Number(document.getElementById('closure-counted').value);
-  const openingFloat = Number(document.getElementById('closure-float').value || 0);
   if (!Number.isFinite(counted) || document.getElementById('closure-counted').value.trim() === '') {
     showToast('Indica cuánto dinero has contado.', 'error');
     return;
@@ -661,7 +776,7 @@ async function saveClosure() {
   const res = await fetch('/api/cash-closures', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ day, counted, openingFloat, note: document.getElementById('closure-note').value.trim() }),
+    body: JSON.stringify({ day, counted, note: document.getElementById('closure-note').value.trim() }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -846,6 +961,14 @@ document.getElementById('toggle-closure').addEventListener('click', () => {
   document.getElementById('toggle-closure').textContent = form.hidden ? 'Hacer el cierre' : 'Cerrar';
 });
 document.getElementById('save-closure').addEventListener('click', saveClosure);
+document.getElementById('open-cash-btn').addEventListener('click', () => pedirMovimiento('apertura'));
+document.getElementById('cash-out-btn').addEventListener('click', () => pedirMovimiento('salida'));
+document.getElementById('cash-in-btn').addEventListener('click', () => pedirMovimiento('entrada'));
+document.getElementById('save-movement').addEventListener('click', guardarMovimiento);
+document.getElementById('cancel-movement').addEventListener('click', () => {
+  document.getElementById('movement-form').hidden = true;
+  movementKind = null;
+});
 
 document.getElementById('add-user').addEventListener('click', async () => {
   const name = document.getElementById('user-name').value.trim();

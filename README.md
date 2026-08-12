@@ -115,9 +115,24 @@ La búsqueda por nombre ignora tildes y mayúsculas, así que "gomez" encuentra 
 En *Historial*, además de los cobros del día con el desglose de efectivo y
 tarjeta:
 
-- **Cierre de caja**: al cerrar se introduce el cambio inicial y lo que se ha
-  contado en el cajón, y queda grabado el descuadre respecto a lo que decía el
-  sistema. Un día solo se puede cerrar una vez.
+- **La caja del día**, con el detalle de dónde sale cada euro:
+
+  ```
+  apertura + ventas en efectivo + entradas − salidas = lo que debe haber
+  ```
+
+  Al empezar el día se declara con cuánto dinero se abre (se ofrece ya escrita
+  la cantidad del último día, que casi siempre es la misma). Durante la jornada
+  se apunta el dinero que sale del cajón —comprar hielo, pagar un porte— y el
+  que entra —cambio traído del banco—. Sacar dinero obliga a decir para qué:
+  es lo que justifica que luego falte.
+
+  Así, si se sacaron 12 € para una compra, al cerrar la caja **cuadra**. Antes
+  ese dinero aparecía como un descuadre de 12 € sin explicación.
+
+- **Cierre de caja**: se cuenta el cajón, se introduce la cifra y queda grabado
+  el descuadre. Un día solo se cierra una vez, y una vez cerrado sus movimientos
+  ya no se pueden tocar.
 - **Exportar ventas**: descarga un CSV del rango de fechas que elijas, con una
   línea por producto vendido. Va con separador `;` y BOM para que Excel en
   español lo abra directo, en columnas y con los acentos bien.

@@ -79,6 +79,15 @@ CREATE TABLE IF NOT EXISTS bono_uses (
   note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+CREATE TABLE IF NOT EXISTS cash_movements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  amount REAL NOT NULL,
+  reason TEXT,
+  user_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
 CREATE TABLE IF NOT EXISTS cash_closures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   day TEXT NOT NULL UNIQUE,
@@ -532,20 +541,81 @@ app.get('/api/reports/daily', (req, res) => {
 
 // ---------- Cierre de caja ----------
 
-function efectivoEsperado(day) {
+function ventasEfectivo(day) {
   return db
     .prepare("SELECT COALESCE(SUM(total), 0) AS t FROM sales WHERE date(created_at) = ? AND method = 'efectivo' AND voided_at IS NULL")
     .get(day).t;
 }
 
+function sumaMovimientos(day, kind) {
+  return db.prepare('SELECT COALESCE(SUM(amount), 0) AS t FROM cash_movements WHERE day = ? AND kind = ?').get(day, kind).t;
+}
+
+// Lo que debería haber en el cajón: con lo que se empezó, más lo cobrado en
+// efectivo, más lo que se haya metido, menos lo que se haya sacado.
+function resumenCaja(day) {
+  const opening = sumaMovimientos(day, 'apertura');
+  const sales = ventasEfectivo(day);
+  const cashIn = sumaMovimientos(day, 'entrada');
+  const cashOut = sumaMovimientos(day, 'salida');
+  return {
+    day,
+    opening,
+    sales,
+    cashIn,
+    cashOut,
+    expected: Number((opening + sales + cashIn - cashOut).toFixed(2)),
+    opened: db.prepare("SELECT COUNT(*) AS c FROM cash_movements WHERE day = ? AND kind = 'apertura'").get(day).c > 0,
+    movements: db.prepare('SELECT * FROM cash_movements WHERE day = ? ORDER BY id DESC').all(day),
+    closure: db.prepare('SELECT * FROM cash_closures WHERE day = ?').get(day) || null,
+  };
+}
+
 app.get('/api/cash-closures', (req, res) => {
   const day = String(req.query.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(400).json({ error: 'Fecha inválida.' });
-  res.json({
-    day,
-    expected: efectivoEsperado(day),
-    closure: db.prepare('SELECT * FROM cash_closures WHERE day = ?').get(day) || null,
-  });
+  res.json(resumenCaja(day));
+});
+
+// Cuánto se dejó de fondo el último día que se abrió: casi siempre repiten
+// la misma cantidad, así se ofrece ya escrita.
+app.get('/api/cash-movements/last-opening', (req, res) => {
+  const ultima = db.prepare("SELECT amount FROM cash_movements WHERE kind = 'apertura' ORDER BY id DESC LIMIT 1").get();
+  res.json({ amount: ultima ? ultima.amount : null });
+});
+
+app.post('/api/cash-movements', requireAdmin, (req, res) => {
+  const day = String(req.body.day || '');
+  const kind = String(req.body.kind || '');
+  const amount = Number(req.body.amount);
+  const reason = String(req.body.reason || '').trim().slice(0, 250);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(400).json({ error: 'Fecha inválida.' });
+  if (!['apertura', 'entrada', 'salida'].includes(kind)) return res.status(400).json({ error: 'Tipo de movimiento inválido.' });
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'El importe tiene que ser mayor que cero.' });
+  if (db.prepare('SELECT id FROM cash_closures WHERE day = ?').get(day)) {
+    return res.status(409).json({ error: 'Ese día ya está cerrado: no se le pueden añadir movimientos.' });
+  }
+  if (kind === 'apertura' && sumaMovimientos(day, 'apertura') > 0) {
+    return res.status(409).json({ error: 'La caja de ese día ya está abierta.' });
+  }
+  if (kind === 'salida' && !reason) return res.status(400).json({ error: 'Di para qué sacas el dinero.' });
+
+  const info = db.prepare('INSERT INTO cash_movements (day, kind, amount, reason, user_name) VALUES (?,?,?,?,?)')
+    .run(day, kind, amount, reason || null, req.user.name);
+  const etiqueta = { apertura: 'Apertura de caja', entrada: 'Entrada de dinero', salida: 'Salida de dinero' }[kind];
+  logAction(req.user, `caja_${kind}`, `${etiqueta} de ${amount} €${reason ? ': ' + reason : ''} (${day})`);
+  res.status(201).json(db.prepare('SELECT * FROM cash_movements WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/cash-movements/:id', requireAdmin, (req, res) => {
+  const mov = db.prepare('SELECT * FROM cash_movements WHERE id = ?').get(req.params.id);
+  if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado.' });
+  if (db.prepare('SELECT id FROM cash_closures WHERE day = ?').get(mov.day)) {
+    return res.status(409).json({ error: 'Ese día ya está cerrado: el movimiento no se puede borrar.' });
+  }
+  db.prepare('DELETE FROM cash_movements WHERE id = ?').run(req.params.id);
+  logAction(req.user, 'caja_movimiento_borrado', `${mov.kind} de ${mov.amount} €${mov.reason ? ': ' + mov.reason : ''} (${mov.day})`);
+  res.json({ ok: true });
 });
 
 app.post('/api/cash-closures', requireAdmin, (req, res) => {
@@ -555,17 +625,17 @@ app.post('/api/cash-closures', requireAdmin, (req, res) => {
     return res.status(409).json({ error: 'Ese día ya tiene el cierre hecho.' });
   }
   const counted = Number(req.body.counted);
-  const openingFloat = Number(req.body.openingFloat || 0);
   if (!Number.isFinite(counted) || counted < 0) return res.status(400).json({ error: 'Indica cuánto dinero has contado.' });
-  if (!Number.isFinite(openingFloat) || openingFloat < 0) return res.status(400).json({ error: 'El cambio inicial no es válido.' });
-  const expected = efectivoEsperado(day);
-  // Lo contado incluye el cambio con el que se empezó el día: hay que descontarlo.
-  const difference = Number((counted - openingFloat - expected).toFixed(2));
+  // Lo esperado ya lleva dentro la apertura, las entradas y las salidas del día,
+  // así que basta con restar: lo contado menos lo que debería haber.
+  const caja = resumenCaja(day);
+  const difference = Number((counted - caja.expected).toFixed(2));
   const note = String(req.body.note || '').trim().slice(0, 250);
   const info = db
     .prepare('INSERT INTO cash_closures (day, opening_float, expected, counted, difference, note, user_name) VALUES (?,?,?,?,?,?,?)')
-    .run(day, openingFloat, expected, counted, difference, note || null, req.user.name);
-  logAction(req.user, 'cierre_caja', `${day}: contado ${counted} €, esperado ${expected} €, descuadre ${difference} €`);
+    .run(day, caja.opening, caja.expected, counted, difference, note || null, req.user.name);
+  logAction(req.user, 'cierre_caja',
+    `${day}: contado ${counted} €, esperado ${caja.expected} € (apertura ${caja.opening} + ventas ${caja.sales} + entradas ${caja.cashIn} - salidas ${caja.cashOut}), descuadre ${difference} €`);
   res.status(201).json(db.prepare('SELECT * FROM cash_closures WHERE id = ?').get(info.lastInsertRowid));
 });
 

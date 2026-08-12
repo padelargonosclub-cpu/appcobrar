@@ -139,16 +139,46 @@ async function main() {
   comprobar('segunda venta en efectivo (10 x 1,80 = 18)', ventaB.cuerpo.total === 18, `dio ${ventaB.cuerpo.total}`);
   await api('/api/sales', { method: 'POST', body: { items: [{ productId: agua.id, qty: 5 }], method: 'tarjeta' } });
 
-  const estado = await api(`/api/cash-closures?date=${HOY}`);
-  comprobar('lo esperado en efectivo son 18 (ni la anulada ni la tarjeta cuentan)', estado.cuerpo.expected === 18, `dio ${estado.cuerpo.expected}`);
-  comprobar('todavía no hay cierre', estado.cuerpo.closure === null);
+  const sinAbrir = await api(`/api/cash-closures?date=${HOY}`);
+  comprobar('sin apertura declarada, el día figura sin abrir', sinAbrir.cuerpo.opened === false);
+  comprobar('las ventas en efectivo son 18 (ni la anulada ni la tarjeta cuentan)', sinAbrir.cuerpo.sales === 18, `dio ${sinAbrir.cuerpo.sales}`);
+  comprobar('todavía no hay cierre', sinAbrir.cuerpo.closure === null);
 
-  const cierre = await api('/api/cash-closures', { method: 'POST', pin: PIN_MARTA, body: { day: HOY, counted: 65.5, openingFloat: 50, note: 'faltaba suelto' } });
-  comprobar('se guarda el cierre', cierre.status === 201, `dio ${cierre.status}: ${cierre.texto}`);
-  comprobar('el descuadre es -2,50 (65,50 - 50 - 18)', cierre.cuerpo.difference === -2.5, `dio ${cierre.cuerpo.difference}`);
-  comprobar('guarda quién lo hizo', cierre.cuerpo.user_name === 'Marta', cierre.cuerpo.user_name);
+  comprobar('declarar la apertura exige PIN',
+    (await api('/api/cash-movements', { method: 'POST', body: { day: HOY, kind: 'apertura', amount: 50 } })).status === 401);
+  comprobar('se declara la apertura con 50',
+    (await api('/api/cash-movements', { method: 'POST', pin: PIN_ANA, body: { day: HOY, kind: 'apertura', amount: 50 } })).status === 201);
+  comprobar('no se puede abrir dos veces el mismo día',
+    (await api('/api/cash-movements', { method: 'POST', pin: PIN_ANA, body: { day: HOY, kind: 'apertura', amount: 30 } })).status === 409);
+
+  const conApertura = await api(`/api/cash-closures?date=${HOY}`);
+  comprobar('lo esperado pasa a ser 68 (50 de fondo + 18 de ventas)', conApertura.cuerpo.expected === 68, `dio ${conApertura.cuerpo.expected}`);
+
+  comprobar('sacar dinero sin decir para qué no cuela',
+    (await api('/api/cash-movements', { method: 'POST', pin: PIN_ANA, body: { day: HOY, kind: 'salida', amount: 12 } })).status === 400);
+  const compra = await api('/api/cash-movements', { method: 'POST', pin: PIN_MARTA, body: { day: HOY, kind: 'salida', amount: 12, reason: 'hielo y limones' } });
+  comprobar('se saca dinero para una compra', compra.status === 201, `dio ${compra.status}`);
+  comprobar('y queda con el nombre de quien lo sacó', compra.cuerpo.user_name === 'Marta', compra.cuerpo.user_name);
+  await api('/api/cash-movements', { method: 'POST', pin: PIN_ANA, body: { day: HOY, kind: 'entrada', amount: 20, reason: 'cambio del banco' } });
+
+  const caja = await api(`/api/cash-closures?date=${HOY}`);
+  comprobar('lo esperado ahora es 76 (50 + 18 + 20 - 12)', caja.cuerpo.expected === 76, `dio ${caja.cuerpo.expected}`);
+  comprobar('el desglose se devuelve entero',
+    caja.cuerpo.opening === 50 && caja.cuerpo.sales === 18 && caja.cuerpo.cashIn === 20 && caja.cuerpo.cashOut === 12);
+  comprobar('con los tres movimientos apuntados', caja.cuerpo.movements.length === 3);
+
+  // Lo que motivó todo esto: si sacas dinero para comprar, la caja tiene que
+  // seguir cuadrando. Antes salía como si faltara.
+  const cuadra = await api('/api/cash-closures', { method: 'POST', pin: PIN_MARTA, body: { day: HOY, counted: 76, note: 'todo correcto' } });
+  comprobar('contando 76 la caja cuadra pese a haber sacado 12', cuadra.cuerpo.difference === 0, `dio ${cuadra.cuerpo.difference}`);
+  comprobar('el cierre guarda la apertura por separado', cuadra.cuerpo.opening_float === 50, `dio ${cuadra.cuerpo.opening_float}`);
+  comprobar('guarda quién lo hizo', cuadra.cuerpo.user_name === 'Marta', cuadra.cuerpo.user_name);
   comprobar('no deja cerrar dos veces el mismo día',
     (await api('/api/cash-closures', { method: 'POST', pin: PIN_ANA, body: { day: HOY, counted: 10 } })).status === 409);
+  comprobar('un día cerrado ya no admite movimientos',
+    (await api('/api/cash-movements', { method: 'POST', pin: PIN_ANA, body: { day: HOY, kind: 'salida', amount: 5, reason: 'tarde' } })).status === 409);
+  comprobar('ni borrar los que tenía',
+    (await api(`/api/cash-movements/${compra.cuerpo.id}`, { method: 'DELETE', pin: PIN_ANA })).status === 409);
 
   console.log('\n# Informes y exportación');
   const hoyDiario = (await api('/api/reports/daily')).cuerpo.find((d) => d.day === HOY);
