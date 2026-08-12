@@ -10,10 +10,18 @@ if (process.env.LOCALAPPDATA) {
 let mainWindow;
 let server;
 
+// Si hay OneDrive, las copias van ahí: dentro del mismo disco que la base de
+// datos no protegen de lo más probable, que es que ese disco falle.
+function carpetaCopiasPorDefecto() {
+  const oneDrive = process.env.OneDriveCommercial || process.env.OneDriveConsumer || process.env.OneDrive;
+  const raiz = oneDrive && fs.existsSync(oneDrive) ? oneDrive : app.getPath('documents');
+  return path.join(raiz, 'Padel Argonos', 'Copias de seguridad');
+}
+
 function prepareDataPaths() {
   const dataDir = path.join(app.getPath('userData'), 'data');
   const dbPath = path.join(dataDir, 'pos.db');
-  const backupDir = path.join(app.getPath('documents'), 'Padel Argonos', 'Copias de seguridad');
+  const backupDir = carpetaCopiasPorDefecto();
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(backupDir, { recursive: true });
 

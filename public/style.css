@@ -807,6 +807,20 @@ button:focus-visible {
 
 /* ============ Ajustes: personas y registro ============ */
 
+.stock-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.stock-entry-row.salida strong { color: var(--red); }
+.stock-entry-row.entrada strong { color: var(--primary-dark); }
+
+.backup-state { padding: 11px 13px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.4; margin-bottom: 14px; }
+.backup-state.ok { background: #e8f4ec; color: #1c6b3f; }
+.backup-state.aviso { background: var(--red-soft); color: var(--red); font-weight: 600; }
+.backup-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-bottom: 14px; }
+.backup-form input { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+.backup-list { max-height: 200px; overflow-y: auto; }
+.backup-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px 70px; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.backup-row:last-child { border-bottom: 0; }
+.backup-row small { color: var(--muted); font-size: 12px; }
+
 .pin-mode-hint { margin-top: 10px; font-size: 13px; color: var(--ink-soft); line-height: 1.4; }
 .pin-mode-hint.aviso { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--red-soft); color: var(--red); font-weight: 600; }
 

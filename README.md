@@ -110,6 +110,19 @@ club nunca cobró.
 La búsqueda por nombre ignora tildes y mayúsculas, así que "gomez" encuentra a
 "Gómez".
 
+**Los bonos no caducan.** Es una decisión del club, no un olvido: un bono a
+medio gastar es dinero ya cobrado que se debe en partidos, sin límite de tiempo.
+
+## Stock que se va sin venderse
+
+En *Catálogo → Movimientos de stock* se apunta tanto la mercancía que llega como
+la que se va sin cobrarse: invitaciones, roturas, consumo propio, caducados.
+Indicar el motivo es obligatorio en las salidas, porque sin él una salida es
+indistinguible de un descuadre.
+
+Si esto no se apunta, el stock del sistema y el del almacén se van separando
+hasta que el catálogo deja de servir para reponer.
+
 ## Cierre de caja y exportación
 
 En *Historial*, además de los cobros del día con el desglose de efectivo y
@@ -144,10 +157,14 @@ tarjeta:
 | Base de datos | `%LOCALAPPDATA%\PadelArgonos\data\pos.db` | `pos.db` junto a `server.js` |
 | Copias | `Documentos\Padel Argonos\Copias de seguridad` | `backups/` |
 
-Se crea una copia diaria automática y se conservan los últimos 30 días. Como
-todo vive en el mismo equipo, conviene que esa carpeta de copias esté
-sincronizada con Drive, Dropbox o similar: si falla el disco, ahora mismo se
-pierden a la vez la base de datos y sus copias.
+Se crea una copia diaria automática y se conservan los últimos 30 días. Si el
+equipo tiene OneDrive, las copias van ahí por defecto; si no, a Documentos. La
+carpeta se puede cambiar en *Ajustes → Copias de seguridad*, donde también hay
+un botón para hacer una copia al momento.
+
+Merece la pena que apunte a una carpeta sincronizada con la nube: una copia en
+el mismo disco que la base de datos no protege del fallo más probable, que es
+que ese disco muera. Ajustes avisa en rojo mientras no lo esté.
 
 Ni `pos.db` ni las copias están en este repositorio: son datos del club, no
 código.

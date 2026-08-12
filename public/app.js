@@ -55,6 +55,8 @@ window.fetch = async function protectedFetch(input, options = {}) {
     || (url === '/api/cash-closures' && methodName === 'POST')
     || (url === '/api/cash-movements' && methodName === 'POST')
     || (/^\/api\/cash-movements\/\d+$/.test(url) && methodName === 'DELETE')
+    || (url === '/api/backups' && methodName === 'POST')
+    || (url === '/api/backups/dir' && methodName === 'PUT')
     || url.startsWith('/api/users')
     || url === '/api/audit'
     || (url === '/api/admin/pin-mode' && methodName === 'POST');
@@ -121,14 +123,73 @@ function renderEntryProducts() {
   if (finiteProducts.some((product) => String(product.id) === current)) select.value = current;
 }
 
+let stockKind = 'entrada';
+
 async function loadStockEntries() {
   const res = await fetch('/api/stock-entries');
   const entries = await res.json();
   const el = document.getElementById('stock-entry-list');
   el.innerHTML = entries.slice(0, 8).map((entry) => {
     const date = new Date(entry.created_at.replace(' ', 'T'));
-    return `<div class="stock-entry-row"><time>${date.toLocaleDateString('es-ES')} ${date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</time><span>${escapeHtml(entry.product_name)}</span><strong>+${entry.qty}</strong><small>${escapeHtml(entry.note || 'Sin nota')}</small></div>`;
+    const salida = entry.kind === 'salida';
+    return `<div class="stock-entry-row ${salida ? 'salida' : 'entrada'}"><time>${date.toLocaleDateString('es-ES')} ${date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</time><span>${escapeHtml(entry.product_name)}</span><strong>${salida ? '−' : '+'}${entry.qty}</strong><small>${escapeHtml(entry.note || 'Sin nota')}</small></div>`;
   }).join('');
+}
+
+function prepararFormularioStock(kind) {
+  stockKind = kind;
+  const form = document.getElementById('stock-entry-form');
+  const salida = kind === 'salida';
+  form.hidden = false;
+  document.getElementById('entry-qty-label').textContent = salida ? 'Unidades que salen' : 'Unidades recibidas';
+  document.getElementById('entry-reason-field').hidden = !salida;
+  document.getElementById('entry-note-label').textContent = salida ? 'Detalle (opcional)' : 'Nota opcional';
+  document.getElementById('entry-note').placeholder = salida ? 'Ej. a los del torneo del sábado' : 'Ej. Pedido semanal';
+  document.getElementById('save-stock-entry').textContent = salida ? 'Guardar salida' : 'Guardar entrada';
+  document.getElementById('toggle-stock-entry').textContent = 'Registrar entrada';
+  document.getElementById('toggle-stock-exit').textContent = 'Registrar salida';
+}
+
+// ---------- Copias de seguridad ----------
+
+async function loadBackups() {
+  const res = await fetch('/api/backups');
+  const info = await res.json();
+  document.getElementById('backup-dir').value = info.dir;
+  const estado = document.getElementById('backup-state');
+  estado.className = `backup-state${info.enLaNube ? ' ok' : ' aviso'}`;
+  estado.textContent = info.enLaNube
+    ? `Las copias van a una carpeta sincronizada con la nube: si este ordenador se rompe, no se pierden. Hay ${info.total} guardadas.`
+    : 'Estas copias están en el mismo disco que la base de datos, así que no protegen del fallo más probable: que ese disco muera. Apúntalas a una carpeta de OneDrive.';
+  document.getElementById('backup-list').innerHTML = info.copias.map((c) => {
+    const fecha = new Date(c.modified);
+    return `<div class="backup-row"><span>${escapeHtml(c.name)}</span><small>${fecha.toLocaleDateString('es-ES')} ${fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</small><small>${Math.max(1, Math.round(c.size / 1024))} KB</small></div>`;
+  }).join('') || '<div class="empty-state"><p>Todavía no hay copias</p></div>';
+}
+
+async function guardarCarpetaCopias() {
+  const dir = document.getElementById('backup-dir').value.trim();
+  const res = await fetch('/api/backups/dir', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dir }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo cambiar la carpeta.', 'error');
+    return;
+  }
+  await loadBackups();
+  showToast('Carpeta guardada. La próxima copia irá ahí.', 'success');
+}
+
+async function copiaAhora() {
+  const res = await fetch('/api/backups', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(data.error || 'No se pudo crear la copia.', 'error');
+    return;
+  }
+  await loadBackups();
+  showToast(`Copia creada: ${data.file}`, 'success');
 }
 
 // El servidor filtra por día: así el historial sigue siendo completo por muchas
@@ -909,29 +970,51 @@ document.getElementById('add-product').addEventListener('click', async () => {
 
 document.getElementById('toggle-stock-entry').addEventListener('click', () => {
   const form = document.getElementById('stock-entry-form');
-  form.hidden = !form.hidden;
-  document.getElementById('toggle-stock-entry').textContent = form.hidden ? 'Registrar entrada' : 'Cerrar';
+  if (!form.hidden && stockKind === 'entrada') {
+    form.hidden = true;
+    return;
+  }
+  prepararFormularioStock('entrada');
+});
+document.getElementById('toggle-stock-exit').addEventListener('click', () => {
+  const form = document.getElementById('stock-entry-form');
+  if (!form.hidden && stockKind === 'salida') {
+    form.hidden = true;
+    return;
+  }
+  prepararFormularioStock('salida');
 });
 
 document.getElementById('save-stock-entry').addEventListener('click', async () => {
   const productId = Number(document.getElementById('entry-product').value);
   const qty = Number(document.getElementById('entry-qty').value);
-  const note = document.getElementById('entry-note').value.trim();
+  const detalle = document.getElementById('entry-note').value.trim();
+  const note = stockKind === 'salida'
+    ? [document.getElementById('entry-reason').value, detalle].filter(Boolean).join(': ')
+    : detalle;
   if (!productId || !Number.isInteger(qty) || qty <= 0 || qty > 999) {
     showToast('Indica un producto y entre 1 y 999 unidades.', 'error');
     return;
   }
-  const res = await fetch('/api/stock-entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, qty, note }) });
+  const res = await fetch('/api/stock-entries', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ productId, qty, note, kind: stockKind }),
+  });
   const data = await res.json();
   if (!res.ok) {
-    showToast(data.error || 'No se pudo registrar la entrada.', 'error');
+    showToast(data.error || 'No se pudo registrar el movimiento.', 'error');
     return;
   }
   document.getElementById('entry-qty').value = '';
   document.getElementById('entry-note').value = '';
   await Promise.all([loadProducts(), loadStockEntries()]);
-  showToast(`Entrada registrada: +${data.qty} ${data.product_name}.`, 'success');
+  showToast(data.kind === 'salida'
+    ? `Salida registrada: −${data.qty} ${data.product_name}.`
+    : `Entrada registrada: +${data.qty} ${data.product_name}.`, 'success');
 });
+
+document.getElementById('backup-now').addEventListener('click', copiaAhora);
+document.getElementById('save-backup-dir').addEventListener('click', guardarCarpetaCopias);
 
 document.getElementById('checkout-btn').addEventListener('click', checkout);
 document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit);
@@ -1053,7 +1136,7 @@ document.querySelectorAll('[data-view]').forEach((btn) => {
     if (btn.dataset.view === 'historial') loadSales();
     if (btn.dataset.view === 'catalogo') loadStockEntries();
     if (btn.dataset.view === 'bonos') loadBonos();
-    if (btn.dataset.view === 'ajustes') { loadPinMode(); loadUsers(); }
+    if (btn.dataset.view === 'ajustes') { loadPinMode(); loadUsers(); loadBackups(); }
   });
 });
 

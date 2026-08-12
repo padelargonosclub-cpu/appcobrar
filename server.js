@@ -106,6 +106,10 @@ const productColumns = db.prepare('PRAGMA table_info(products)').all().map((c) =
 if (!productColumns.includes('unlimited_stock')) {
   db.exec('ALTER TABLE products ADD COLUMN unlimited_stock INTEGER NOT NULL DEFAULT 0');
 }
+const stockColumns = db.prepare('PRAGMA table_info(stock_entries)').all().map((c) => c.name);
+if (!stockColumns.includes('kind')) {
+  db.exec("ALTER TABLE stock_entries ADD COLUMN kind TEXT NOT NULL DEFAULT 'entrada'");
+}
 const saleColumns = db.prepare('PRAGMA table_info(sales)').all().map((c) => c.name);
 if (!saleColumns.includes('amount_received')) db.exec('ALTER TABLE sales ADD COLUMN amount_received REAL');
 if (!saleColumns.includes('change_due')) db.exec('ALTER TABLE sales ADD COLUMN change_due REAL');
@@ -251,21 +255,84 @@ app.get('/api/audit', requireAdmin, (req, res) => {
   res.json(db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200').all());
 });
 
-async function backupDatabase() {
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+// La carpeta se puede cambiar desde Ajustes: lo suyo es apuntarla a una carpeta
+// sincronizada con la nube, porque una copia en el mismo disco no protege de lo
+// más probable, que es que ese disco falle.
+function carpetaCopias() {
+  return getSetting('backup_dir') || BACKUP_DIR;
+}
+
+async function backupDatabase({ force = false } = {}) {
+  const dir = carpetaCopias();
+  fs.mkdirSync(dir, { recursive: true });
   const now = new Date();
   const day = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
-  const target = path.join(BACKUP_DIR, `pos-${day}.db`);
-  if (!fs.existsSync(target)) {
+  const target = path.join(dir, `pos-${day}.db`);
+  if (force || !fs.existsSync(target)) {
     await db.backup(target);
-    console.log(`[backup] Copia diaria creada: ${path.basename(target)}`);
+    console.log(`[backup] Copia creada: ${path.basename(target)} en ${dir}`);
   }
-  const backups = fs.readdirSync(BACKUP_DIR)
+  const backups = fs.readdirSync(dir)
     .filter((name) => /^pos-\d{4}-\d{2}-\d{2}\.db$/.test(name))
     .sort()
     .reverse();
-  for (const oldBackup of backups.slice(30)) fs.unlinkSync(path.join(BACKUP_DIR, oldBackup));
+  for (const oldBackup of backups.slice(30)) fs.unlinkSync(path.join(dir, oldBackup));
+  return target;
 }
+
+function listarCopias(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((name) => /^pos-\d{4}-\d{2}-\d{2}\.db$/.test(name))
+    .sort()
+    .reverse()
+    .map((name) => {
+      const stat = fs.statSync(path.join(dir, name));
+      return { name, size: stat.size, modified: stat.mtime.toISOString() };
+    });
+}
+
+app.get('/api/backups', (req, res) => {
+  const dir = carpetaCopias();
+  const copias = listarCopias(dir);
+  res.json({
+    dir,
+    porDefecto: BACKUP_DIR,
+    personalizada: Boolean(getSetting('backup_dir')),
+    // Una carpeta sincronizada saca las copias de este disco, que es la gracia.
+    enLaNube: /onedrive|dropbox|google drive|nextcloud|icloud/i.test(dir),
+    copias: copias.slice(0, 10),
+    total: copias.length,
+  });
+});
+
+app.put('/api/backups/dir', requireAdmin, (req, res) => {
+  const dir = String(req.body.dir || '').trim();
+  if (!dir) return res.status(400).json({ error: 'Indica la carpeta donde quieres las copias.' });
+  if (!path.isAbsolute(dir)) return res.status(400).json({ error: 'Pon la ruta completa, empezando por la unidad (C:\\...).' });
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const prueba = path.join(dir, '.padel-escritura');
+    fs.writeFileSync(prueba, 'ok');
+    fs.unlinkSync(prueba);
+  } catch (err) {
+    return res.status(400).json({ error: `No se puede escribir en esa carpeta: ${err.message}` });
+  }
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run('backup_dir', dir);
+  logAction(req.user, 'copias_carpeta', `Las copias pasan a guardarse en ${dir}`);
+  res.json({ dir });
+});
+
+app.post('/api/backups', requireAdmin, async (req, res) => {
+  try {
+    const target = await backupDatabase({ force: true });
+    logAction(req.user, 'copia_manual', `Copia creada a mano en ${target}`);
+    res.status(201).json({ file: path.basename(target), dir: path.dirname(target) });
+  } catch (err) {
+    res.status(500).json({ error: `No se pudo crear la copia: ${err.message}` });
+  }
+});
 
 function scheduleBackups() {
   backupDatabase().catch((err) => console.error('[backup] No se pudo crear la copia:', err));
@@ -337,23 +404,34 @@ app.patch('/api/products/:id/stock', requireAdmin, (req, res) => {
   res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id));
 });
 
+// Entradas (mercancía que llega) y salidas (lo que se va sin venderse: roturas,
+// invitaciones, consumo propio). Sin las salidas, el stock del sistema y el del
+// almacén se separan poco a poco hasta que el catálogo no sirve para nada.
 app.post('/api/stock-entries', requireAdmin, (req, res) => {
   const productId = Number(req.body.productId);
   const qty = Number(req.body.qty);
+  const kind = req.body.kind === 'salida' ? 'salida' : 'entrada';
   const note = String(req.body.note || '').trim().slice(0, 250);
   if (!Number.isInteger(qty) || qty <= 0) return res.status(400).json({ error: 'Las unidades deben ser un número entero mayor que cero.' });
+  if (kind === 'salida' && !note) return res.status(400).json({ error: 'Di por qué sale del stock: sin motivo es indistinguible de un descuadre.' });
+
   const register = db.transaction(() => {
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
     if (!product) throw new Error('Producto no encontrado.');
-    if (product.unlimited_stock) throw new Error('Los productos con stock infinito no necesitan entradas.');
-    db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(qty, productId);
-    const info = db.prepare('INSERT INTO stock_entries (product_id, product_name, qty, note) VALUES (?,?,?,?)')
-      .run(productId, product.name, qty, note || null);
+    if (product.unlimited_stock) throw new Error('Los productos con stock infinito no llevan cuenta de unidades.');
+    if (kind === 'salida' && product.stock < qty) {
+      throw new Error(`Solo quedan ${product.stock} de ${product.name}.`);
+    }
+    db.prepare(`UPDATE products SET stock = stock ${kind === 'salida' ? '-' : '+'} ? WHERE id = ?`).run(qty, productId);
+    const info = db.prepare('INSERT INTO stock_entries (product_id, product_name, qty, note, kind) VALUES (?,?,?,?,?)')
+      .run(productId, product.name, qty, note || null, kind);
     return db.prepare('SELECT * FROM stock_entries WHERE id = ?').get(info.lastInsertRowid);
   });
+
   try {
     const entry = register();
-    logAction(req.user, 'entrada_mercancia', `${entry.product_name}: +${entry.qty}${entry.note ? ' (' + entry.note + ')' : ''}`);
+    logAction(req.user, entry.kind === 'salida' ? 'salida_stock' : 'entrada_mercancia',
+      `${entry.product_name}: ${entry.kind === 'salida' ? '-' : '+'}${entry.qty}${entry.note ? ' (' + entry.note + ')' : ''}`);
     res.status(201).json(entry);
   } catch (err) {
     res.status(400).json({ error: err.message });

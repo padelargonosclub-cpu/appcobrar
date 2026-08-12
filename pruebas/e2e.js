@@ -243,6 +243,43 @@ async function main() {
   comprobar('se puede corregir el nombre', renombrado.cuerpo.holder_name === 'Pedro G. Ruiz');
   comprobar('sin perder los partidos gastados', renombrado.cuerpo.used === 1, `${renombrado.cuerpo.used}`);
 
+  console.log('\n# Stock que se va sin venderse');
+  const antesStock = (await api('/api/products')).cuerpo.find((p) => p.id === agua.id).stock;
+  comprobar('una salida sin motivo no cuela',
+    (await api('/api/stock-entries', { method: 'POST', pin: PIN_ANA, body: { productId: agua.id, qty: 2, kind: 'salida' } })).status === 400);
+  const merma = await api('/api/stock-entries', { method: 'POST', pin: PIN_ANA, body: { productId: agua.id, qty: 2, kind: 'salida', note: 'Invitación: a los del torneo' } });
+  comprobar('se registra la salida', merma.status === 201, `dio ${merma.status}: ${merma.texto}`);
+  comprobar('y descuenta del stock',
+    (await api('/api/products')).cuerpo.find((p) => p.id === agua.id).stock === antesStock - 2);
+  comprobar('queda marcada como salida', merma.cuerpo.kind === 'salida', merma.cuerpo.kind);
+  comprobar('las entradas de antes siguen siendo entradas',
+    (await api('/api/stock-entries')).cuerpo.every((e) => ['entrada', 'salida'].includes(e.kind)));
+  comprobar('no deja sacar más de lo que hay',
+    (await api('/api/stock-entries', { method: 'POST', pin: PIN_ANA, body: { productId: agua.id, qty: 9999, kind: 'salida', note: 'Rotura' } })).status === 400);
+  comprobar('la salida queda en el registro de actividad',
+    (await api('/api/audit', { pin: PIN_ANA })).cuerpo.some((e) => e.action === 'salida_stock' && e.detail.includes('torneo')));
+
+  console.log('\n# Copias de seguridad');
+  const copias = await api('/api/backups');
+  comprobar('informa de la carpeta y de las copias', typeof copias.cuerpo.dir === 'string' && Array.isArray(copias.cuerpo.copias));
+  comprobar('cambiar la carpeta exige PIN',
+    (await api('/api/backups/dir', { method: 'PUT', body: { dir: path.join(dir, 'nube') } })).status === 401);
+  comprobar('una ruta relativa se rechaza',
+    (await api('/api/backups/dir', { method: 'PUT', pin: PIN_ANA, body: { dir: 'copias' } })).status === 400);
+  const nueva = path.join(dir, 'nube-de-mentira');
+  comprobar('se cambia la carpeta',
+    (await api('/api/backups/dir', { method: 'PUT', pin: PIN_ANA, body: { dir: nueva } })).status === 200);
+  const hecha = await api('/api/backups', { method: 'POST', pin: PIN_ANA });
+  comprobar('la copia manual se crea', hecha.status === 201, `dio ${hecha.status}: ${hecha.texto}`);
+  comprobar('y aparece en la carpeta nueva', fs.existsSync(path.join(nueva, hecha.cuerpo.file)));
+  comprobar('la copia se abre y tiene las ventas dentro', (() => {
+    const Database = require('better-sqlite3');
+    const copia = new Database(path.join(nueva, hecha.cuerpo.file), { readonly: true });
+    const n = copia.prepare('SELECT COUNT(*) AS c FROM sales').get().c;
+    copia.close();
+    return n > 0;
+  })());
+
   console.log('\n# Cajón y bajas');
   comprobar('abrir el cajón exige PIN', (await api('/api/cash-drawer/open', { method: 'POST' })).status === 401);
   comprobar('con PIN, abre', (await api('/api/cash-drawer/open', { method: 'POST', pin: PIN_ANA })).status === 200);

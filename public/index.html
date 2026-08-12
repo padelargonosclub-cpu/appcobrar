@@ -107,13 +107,26 @@
   <section id="view-catalogo" hidden>
     <div class="card stock-entry-card">
       <div class="panel-title">
-        <div><h2>Entradas de mercancía</h2><span class="hint">Suma al stock todo lo que recibas</span></div>
-        <button id="toggle-stock-entry" class="btn-secondary" type="button">Registrar entrada</button>
+        <div><h2>Movimientos de stock</h2><span class="hint">Lo que recibes y lo que se va sin venderse</span></div>
+        <div class="stock-buttons">
+          <button id="toggle-stock-entry" class="btn-secondary" type="button">Registrar entrada</button>
+          <button id="toggle-stock-exit" class="btn-secondary" type="button">Registrar salida</button>
+        </div>
       </div>
       <div id="stock-entry-form" class="stock-entry-form" hidden>
         <label class="field"><span>Producto</span><select id="entry-product"></select></label>
-        <label class="field"><span>Unidades recibidas</span><input id="entry-qty" type="number" min="1" max="999" step="1" placeholder="Ej. 24"></label>
-        <label class="field"><span>Nota opcional</span><input id="entry-note" type="text" maxlength="250" placeholder="Ej. Pedido semanal"></label>
+        <label class="field"><span id="entry-qty-label">Unidades recibidas</span><input id="entry-qty" type="number" min="1" max="999" step="1" placeholder="Ej. 24"></label>
+        <label class="field" id="entry-reason-field" hidden>
+          <span>Motivo</span>
+          <select id="entry-reason">
+            <option>Invitación</option>
+            <option>Rotura o merma</option>
+            <option>Consumo propio</option>
+            <option>Caducado</option>
+            <option>Otro</option>
+          </select>
+        </label>
+        <label class="field"><span id="entry-note-label">Nota opcional</span><input id="entry-note" type="text" maxlength="250" placeholder="Ej. Pedido semanal"></label>
         <button id="save-stock-entry" class="btn-primary" type="button">Guardar entrada</button>
       </div>
       <div id="stock-entry-list" class="stock-entry-list"></div>
@@ -311,6 +324,19 @@
         <button id="add-user" class="btn-primary" type="button">Dar de alta</button>
       </div>
       <div id="user-list" class="user-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">
+        <div><h2>Copias de seguridad</h2><span class="hint">Una copia al día, se conservan los últimos 30</span></div>
+        <button id="backup-now" class="btn-secondary" type="button">Hacer copia ahora</button>
+      </div>
+      <div id="backup-state" class="backup-state"></div>
+      <div class="backup-form">
+        <label class="field"><span>Carpeta donde se guardan</span><input id="backup-dir" type="text" spellcheck="false" placeholder="C:\Users\...\OneDrive\Padel Argonos\Copias de seguridad"></label>
+        <button id="save-backup-dir" class="btn-primary" type="button">Guardar carpeta</button>
+      </div>
+      <div id="backup-list" class="backup-list"></div>
     </div>
 
     <div class="card">
