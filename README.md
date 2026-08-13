@@ -244,15 +244,32 @@ desconocido" la primera vez.
 
 ### Publicar una actualización
 
+Sube el número de `version` en `package.json` y:
+
 ```bash
 npm run publish
 ```
 
-Sube el instalador a las releases de GitHub. Las cajas ya instaladas lo detectan
-al abrirse y ofrecen instalarlo. Requiere un token de GitHub con permiso sobre
-el repositorio en la variable de entorno `GH_TOKEN`, y que el repositorio sea
-público (si fuera privado, la app necesitaría llevar un token dentro, que
-cualquiera podría extraer del `.exe`).
+Compila y sube a las releases de GitHub el instalador, su `.blockmap` y el
+`latest.yml`. Las cajas ya instaladas lo detectan al abrirse y ofrecen
+instalarlo.
+
+Requisitos: un token de GitHub con permiso de escritura sobre el repositorio en
+la variable de entorno `GH_TOKEN`, y que **el repositorio sea público**. Si
+fuera privado, la app necesitaría llevar un token dentro para descargarse las
+actualizaciones, y ese token se puede extraer del `.exe`.
+
+Dos cosas que se olvidan y dejan la actualización sin efecto, en silencio:
+
+- El `latest.yml` tiene que estar entre los archivos de la release. Es lo que
+  consulta la app; sin él no se entera de nada.
+- La release tiene que estar **publicada, no en borrador**. Por eso la
+  configuración lleva `"releaseType": "release"`: por defecto electron-builder
+  crea borradores, que no ve nadie.
+
+La versión instalada se ve en la barra superior de la aplicación y en
+*Ajustes → Versión del programa*, donde además se puede comprobar si hay una
+más nueva publicada.
 
 `initial-pos.db` es la base de datos semilla que la aplicación copia la primera
 vez que se abre. Trae un catálogo de 12 productos de partida y ninguna venta,

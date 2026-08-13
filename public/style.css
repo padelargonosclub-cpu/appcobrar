@@ -816,6 +816,18 @@ button:focus-visible {
 .stock-entry-row.salida strong { color: var(--red); }
 .stock-entry-row.entrada strong { color: var(--primary-dark); }
 
+.app-version { opacity: .75; font-variant-numeric: tabular-nums; margin-left: 2px; }
+
+.version-state { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--primary-soft); color: var(--ink-soft); font-size: 13.5px; }
+.version-state strong { font-size: 17px; color: var(--green-900); }
+.version-state small { color: var(--muted); font-size: 12px; }
+.version-state.ok { background: #e8f4ec; }
+.version-state.ok strong { color: #1c6b3f; }
+.version-state.nueva { background: #fff4e2; }
+.version-state.nueva strong { color: #b4600c; }
+.version-state.aviso { background: var(--red-soft); }
+.version-state.aviso strong { color: var(--red); }
+
 .backup-state { padding: 11px 13px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.4; margin-bottom: 14px; }
 .backup-state.ok { background: #e8f4ec; color: #1c6b3f; }
 .backup-state.aviso { background: var(--red-soft); color: var(--red); font-weight: 600; }

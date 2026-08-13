@@ -756,6 +756,57 @@ app.post('/api/cash-closures', requireAdmin, (req, res) => {
   res.status(201).json(db.prepare('SELECT * FROM cash_closures WHERE id = ?').get(info.lastInsertRowid));
 });
 
+// ---------- Versión ----------
+
+const paquete = require('./package.json');
+// De dónde se publican las versiones, sacado de la configuración de compilación
+// para no repetir el nombre del repositorio en dos sitios.
+const publicacion = (paquete.build && paquete.build.publish && paquete.build.publish[0]) || null;
+let cacheVersion = { cuando: 0, ultima: null, error: null };
+
+async function ultimaPublicada() {
+  if (!publicacion || publicacion.provider !== 'github') return { ultima: null, error: 'Sin repositorio de publicación configurado.' };
+  // Se consulta como mucho cada diez minutos: no hace falta más y así no se
+  // molesta a GitHub cada vez que alguien abre Ajustes.
+  if (Date.now() - cacheVersion.cuando < 10 * 60 * 1000) return cacheVersion;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${publicacion.owner}/${publicacion.repo}/releases/latest`, {
+      headers: { 'User-Agent': 'caja-padel-argonos', Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`GitHub respondió ${res.status}`);
+    const data = await res.json();
+    cacheVersion = { cuando: Date.now(), ultima: String(data.tag_name || '').replace(/^v/, '') || null, error: null };
+  } catch (err) {
+    cacheVersion = { cuando: Date.now(), ultima: null, error: err.message };
+  }
+  return cacheVersion;
+}
+
+// Compara 0.7.0 con 0.10.0 por números, no por texto: como cadenas, "10" < "7".
+function esMasNueva(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+app.get('/api/version', async (req, res) => {
+  const actual = paquete.version;
+  if (req.query.check !== '1') return res.json({ actual });
+  const { ultima, error } = await ultimaPublicada();
+  res.json({
+    actual,
+    ultima,
+    hayNueva: Boolean(ultima && esMasNueva(ultima, actual)),
+    error,
+  });
+});
+
 // ---------- Bonos ----------
 
 // Los partidos gastados se cuentan a partir de sus registros en vez de llevar

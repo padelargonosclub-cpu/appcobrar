@@ -244,6 +244,17 @@ async function main() {
   comprobar('se puede corregir el nombre', renombrado.cuerpo.holder_name === 'Pedro G. Ruiz');
   comprobar('sin perder los partidos gastados', renombrado.cuerpo.used === 1, `${renombrado.cuerpo.used}`);
 
+  console.log('\n# Versión');
+  const version = await api('/api/version');
+  const esperada = require('../package.json').version;
+  comprobar('dice la versión que tiene el programa', version.cuerpo.actual === esperada, `dijo ${version.cuerpo.actual}, esperaba ${esperada}`);
+  comprobar('sin ?check no sale a internet', version.cuerpo.ultima === undefined);
+  const conCheck = await api('/api/version?check=1');
+  comprobar('con ?check responde igualmente aunque falle la red',
+    conCheck.status === 200 && conCheck.cuerpo.actual === esperada, conCheck.texto);
+  comprobar('y dice si hay una más nueva o por qué no lo sabe',
+    typeof conCheck.cuerpo.hayNueva === 'boolean' || conCheck.cuerpo.error, conCheck.texto);
+
   console.log('\n# IVA');
   comprobar('los productos nacen al 21 % si no se dice otra cosa',
     (await api('/api/products')).cuerpo.every((p) => p.vat_rate === 21));

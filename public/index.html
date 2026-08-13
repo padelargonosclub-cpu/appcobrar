@@ -15,7 +15,7 @@
     <span class="brand-logo" aria-hidden="true"><img src="assets/argonos-icon.svg" alt=""></span>
     <span class="brand-name">
       <strong>Pádel Argonos</strong>
-      <small>Caja del club</small>
+      <small>Caja del club <span id="app-version" class="app-version"></span></small>
     </span>
   </div>
 
@@ -340,6 +340,14 @@
         <button id="add-user" class="btn-primary" type="button">Dar de alta</button>
       </div>
       <div id="user-list" class="user-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="panel-title">
+        <div><h2>Versión del programa</h2><span class="hint">Útil para saber qué hay instalado si llamas al club</span></div>
+        <button id="check-version" class="btn-secondary" type="button">Comprobar</button>
+      </div>
+      <div id="version-state" class="version-state"></div>
     </div>
 
     <div class="card">

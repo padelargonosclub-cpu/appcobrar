@@ -150,6 +150,39 @@ function prepararFormularioStock(kind) {
   document.getElementById('toggle-stock-exit').textContent = 'Registrar salida';
 }
 
+// ---------- Versión ----------
+
+async function loadVersion(comprobarNueva = false) {
+  const res = await fetch(`/api/version${comprobarNueva ? '?check=1' : ''}`);
+  const info = await res.json();
+  document.getElementById('app-version').textContent = `v${info.actual}`;
+
+  const estado = document.getElementById('version-state');
+  if (!estado) return info;
+  if (!comprobarNueva) {
+    estado.className = 'version-state';
+    estado.innerHTML = `<strong>Versión ${escapeHtml(info.actual)}</strong>
+      <span>Pulsa «Comprobar» para ver si hay una más nueva publicada.</span>`;
+    return info;
+  }
+  if (info.error) {
+    estado.className = 'version-state aviso';
+    estado.innerHTML = `<strong>Versión ${escapeHtml(info.actual)}</strong>
+      <span>No se ha podido preguntar si hay novedades: ${escapeHtml(info.error)}</span>
+      <small>Suele ser falta de conexión. La caja funciona igual.</small>`;
+  } else if (info.hayNueva) {
+    estado.className = 'version-state nueva';
+    estado.innerHTML = `<strong>Hay una versión nueva: ${escapeHtml(info.ultima)}</strong>
+      <span>Esta caja tiene la ${escapeHtml(info.actual)}.</span>
+      <small>Se instala sola al abrir el programa; si no salta el aviso, cierra y vuelve a abrir.</small>`;
+  } else {
+    estado.className = 'version-state ok';
+    estado.innerHTML = `<strong>Versión ${escapeHtml(info.actual)}, al día</strong>
+      <span>Es la última publicada.</span>`;
+  }
+  return info;
+}
+
 // ---------- Copias de seguridad ----------
 
 async function loadBackups() {
@@ -1038,6 +1071,15 @@ document.getElementById('save-stock-entry').addEventListener('click', async () =
     : `Entrada registrada: +${data.qty} ${data.product_name}.`, 'success');
 });
 
+document.getElementById('check-version').addEventListener('click', async () => {
+  const boton = document.getElementById('check-version');
+  boton.disabled = true;
+  boton.textContent = 'Comprobando…';
+  try { await loadVersion(true); } finally {
+    boton.disabled = false;
+    boton.textContent = 'Comprobar';
+  }
+});
 document.getElementById('backup-now').addEventListener('click', copiaAhora);
 document.getElementById('save-backup-dir').addEventListener('click', guardarCarpetaCopias);
 
@@ -1161,10 +1203,11 @@ document.querySelectorAll('[data-view]').forEach((btn) => {
     if (btn.dataset.view === 'historial') loadSales();
     if (btn.dataset.view === 'catalogo') loadStockEntries();
     if (btn.dataset.view === 'bonos') loadBonos();
-    if (btn.dataset.view === 'ajustes') { loadPinMode(); loadUsers(); loadBackups(); }
+    if (btn.dataset.view === 'ajustes') { loadPinMode(); loadUsers(); loadBackups(); loadVersion(); }
   });
 });
 
+loadVersion();
 loadProducts();
 loadSales();
 loadStockEntries();
