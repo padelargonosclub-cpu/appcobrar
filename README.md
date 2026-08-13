@@ -259,7 +259,24 @@ la variable de entorno `GH_TOKEN`, y que **el repositorio sea público**. Si
 fuera privado, la app necesitaría llevar un token dentro para descargarse las
 actualizaciones, y ese token se puede extraer del `.exe`.
 
-Dos cosas que se olvidan y dejan la actualización sin efecto, en silencio:
+**El orden importa**: hay que crear y subir la etiqueta de git *antes* de
+publicar, porque GitHub no deja crear una release publicada sobre una etiqueta
+que no existe (responde `422 Published releases must have a valid tag`).
+
+```bash
+git tag -a v0.8.0 -m "Version 0.8.0"
+git push origin main
+git push origin v0.8.0
+npm run publish
+```
+
+**Y hay que mirar el resultado.** electron-builder lanza dos subidas en paralelo
+y, si la release no existía, las dos intentan crearla: acaban saliendo dos
+releases con la misma etiqueta y los archivos repartidos entre ambas. Si pasa,
+se borra la que no tenga el `latest.yml` y se le sube a la buena lo que le
+falte. Al terminar, la release debe tener exactamente tres archivos.
+
+Otras dos cosas que se olvidan y dejan la actualización sin efecto, en silencio:
 
 - El `latest.yml` tiene que estar entre los archivos de la release. Es lo que
   consulta la app; sin él no se entera de nada.
