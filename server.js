@@ -392,8 +392,17 @@ app.post('/api/cash-drawer/open', requireAdmin, (req, res) => {
 
 // ---------- Productos ----------
 
+// Se acompaña de cuántas veces se ha cobrado cada producto en los últimos 60
+// días, para que la rejilla de venta ponga delante lo que de verdad se vende.
 app.get('/api/products', (req, res) => {
-  const products = db.prepare('SELECT * FROM products ORDER BY category, name').all();
+  const products = db.prepare(
+    `SELECT p.*, (
+       SELECT COUNT(DISTINCT s.id) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+       WHERE i.product_id = p.id AND s.voided_at IS NULL
+         AND s.created_at >= datetime('now','localtime','-60 days')
+     ) AS recent_sales
+     FROM products p ORDER BY p.category, p.name`
+  ).all();
   res.json(products);
 });
 

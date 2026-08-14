@@ -72,38 +72,35 @@
           <span id="cart-total">0,00 €</span>
         </div>
 
-        <div class="pay-methods">
-          <button class="pay-btn active" id="pay-efectivo">
+        <div class="pay-actions">
+          <button id="pay-cash-btn" class="pay-action cash" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
-            Efectivo
+            <span class="pay-action-label">Efectivo</span>
+            <span class="pay-action-total" id="pay-cash-total">0,00 €</span>
           </button>
-          <button class="pay-btn" id="pay-tarjeta">
+          <button id="pay-card-btn" class="pay-action card" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
-            Tarjeta
+            <span class="pay-action-label">Tarjeta</span>
+            <span class="pay-action-total" id="pay-card-total">0,00 €</span>
           </button>
         </div>
 
-        <button id="open-drawer-btn" class="open-drawer-btn" type="button">Abrir caja</button>
+        <button id="cancel-edit-btn" class="cancel-edit-btn" hidden>Cancelar edición</button>
+        <p id="checkout-msg"></p>
 
-        <label class="field sale-note-field">
-          <span>Nota del cobro (opcional)</span>
-          <input id="sale-note" type="text" maxlength="120" placeholder="Ej. Pedro, pista 2, reserva de tel.">
-        </label>
-
-        <div id="cash-payment" class="cash-payment">
+        <button id="toggle-extras" class="toggle-extras" type="button">Más opciones</button>
+        <div id="checkout-extras" class="checkout-extras" hidden>
           <label class="field">
             <span>Efectivo recibido (€)</span>
             <input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Opcional">
           </label>
           <div class="change-row"><span>Cambio</span><strong id="cash-change">Sin calcular</strong></div>
+          <label class="field">
+            <span>Nota del cobro</span>
+            <input id="sale-note" type="text" maxlength="120" placeholder="Ej. Pedro, pista 2">
+          </label>
+          <button id="open-drawer-btn" class="open-drawer-btn" type="button">Abrir caja</button>
         </div>
-
-        <button id="checkout-btn" class="checkout-btn">
-          <span>Cobrar</span>
-          <span id="checkout-total" class="checkout-amount">0,00 €</span>
-        </button>
-        <button id="cancel-edit-btn" class="cancel-edit-btn" hidden>Cancelar edición</button>
-        <p id="checkout-msg"></p>
       </div>
     </aside>
   </section>

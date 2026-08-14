@@ -84,6 +84,20 @@ DELETE FROM users;
 DELETE FROM settings WHERE key = 'admin_pin';
 ```
 
+## Cobrar en dos toques
+
+Tocar el producto y tocar **Efectivo** o **Tarjeta**. No hay selector de método
+aparte ni botón de confirmar: cada uno de esos dos botones ya es el cobro, con
+el importe escrito dentro.
+
+La rejilla de productos se ordena sola por lo que más se ha cobrado en los
+últimos 60 días, así que lo que se vende de verdad queda en las primeras filas y
+lo que no se vende nunca se hunde. No hay ninguna lista que mantener a mano.
+
+El efectivo recibido, la nota del cobro y el botón de abrir el cajón están
+detrás de *Más opciones*: con 44 cobros reales solo uno usó el cambio y ninguno
+la nota, así que estorbaban más que ayudaban.
+
 ## Bonos
 
 Un bono es un abono de partidos que el socio paga por adelantado (de partida,

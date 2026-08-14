@@ -780,6 +780,34 @@ button:focus-visible {
 .cash-line.total span { color: var(--green-900); font-weight: 700; }
 .cash-line.total strong { font-size: 21px; color: var(--green-900); }
 
+/* Cobrar en un toque: el paso que más se repite del día */
+.pay-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.pay-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 15px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform .06s ease, filter .12s ease;
+}
+.pay-action svg { width: 21px; height: 21px; }
+.pay-action-label { font-size: 13.5px; }
+.pay-action-total { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.pay-action.cash { background: var(--primary-dark); }
+.pay-action.card { background: var(--green-900); }
+.pay-action:hover { filter: brightness(1.08); }
+.pay-action:active { transform: translateY(1px); }
+
+.toggle-extras { width: 100%; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px; cursor: pointer; }
+.toggle-extras:hover { color: var(--primary-dark); }
+.checkout-extras { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius-sm); background: var(--line-soft); }
+
 .vat-breakdown { margin: 0 0 16px; }
 .vat-breakdown h3 { font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
 .sale-note { color: var(--primary-dark); font-style: normal; font-weight: 600; }

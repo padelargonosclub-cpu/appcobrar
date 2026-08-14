@@ -352,7 +352,11 @@ function renderVentaGrid() {
   const el = document.getElementById('venta-grid');
   el.innerHTML = '';
   renderCategoryFilters();
-  const visibleProducts = selectedCategory === 'Todos' ? products : products.filter((p) => p.category === selectedCategory);
+  const visibleProducts = (selectedCategory === 'Todos' ? products : products.filter((p) => p.category === selectedCategory))
+    // Lo más cobrado, delante. Los que nunca se venden se hunden solos, sin
+    // tener que mantener ninguna lista a mano.
+    .slice()
+    .sort((a, b) => (b.recent_sales || 0) - (a.recent_sales || 0) || a.name.localeCompare(b.name, 'es'));
   visibleProducts.forEach((p) => {
     const line = cart.find((c) => c.id === p.id);
     const used = line ? line.qty : 0;
@@ -412,6 +416,14 @@ function changeQty(id, delta) {
   renderVentaGrid();
 }
 
+// En modo edición los dos botones guardan; el texto lo dice para que nadie
+// crea que está cobrando otra vez.
+function actualizarBotonesCobro() {
+  const editando = Boolean(editingSaleId);
+  document.querySelector('#pay-cash-btn .pay-action-label').textContent = editando ? 'Guardar en efectivo' : 'Efectivo';
+  document.querySelector('#pay-card-btn .pay-action-label').textContent = editando ? 'Guardar en tarjeta' : 'Tarjeta';
+}
+
 function cartTotal() {
   return cart.reduce((sum, c) => {
     const p = findProduct(c.id);
@@ -447,7 +459,8 @@ function renderCart() {
   el.querySelectorAll('.qty-minus').forEach((b) => b.addEventListener('click', () => changeQty(Number(b.dataset.id), -1)));
   el.querySelectorAll('.qty-plus').forEach((b) => b.addEventListener('click', () => changeQty(Number(b.dataset.id), 1)));
   document.getElementById('cart-total').textContent = fmt(cartTotal());
-  document.getElementById('checkout-total').textContent = fmt(cartTotal());
+  document.getElementById('pay-cash-total').textContent = fmt(cartTotal());
+  document.getElementById('pay-card-total').textContent = fmt(cartTotal());
   updateChange();
 }
 
@@ -494,7 +507,7 @@ async function checkout() {
   editingOriginal.clear();
   document.getElementById('cash-received').value = '';
   document.getElementById('sale-note').value = '';
-  document.querySelector('#checkout-btn span:first-child').textContent = 'Cobrar';
+  actualizarBotonesCobro();
   document.getElementById('cancel-edit-btn').hidden = true;
   await loadProducts();
   await loadSales();
@@ -575,7 +588,7 @@ async function deleteSale(id) {
     editingSaleId = null;
     editingOriginal.clear();
     cart = [];
-    document.querySelector('#checkout-btn span:first-child').textContent = 'Cobrar';
+    actualizarBotonesCobro();
     document.getElementById('cancel-edit-btn').hidden = true;
     renderCart();
   }
@@ -594,11 +607,9 @@ function editSale(id, sales) {
   editingOriginal = new Map(sale.items.map((i) => [i.product_id, i.qty]));
   cart = sale.items.map((i) => ({ id: i.product_id, qty: i.qty }));
   method = sale.method;
-  document.getElementById('pay-efectivo').classList.toggle('active', method === 'efectivo');
-  document.getElementById('pay-tarjeta').classList.toggle('active', method === 'tarjeta');
-  document.getElementById('cash-payment').hidden = method !== 'efectivo';
   document.getElementById('cash-received').value = sale.amount_received ?? '';
-  document.querySelector('#checkout-btn span:first-child').textContent = 'Guardar cambios';
+  if (sale.amount_received != null) document.getElementById('checkout-extras').hidden = false;
+  actualizarBotonesCobro();
   document.getElementById('cancel-edit-btn').hidden = false;
   document.querySelector('[data-view="venta"]').click();
   renderCart();
@@ -610,7 +621,7 @@ function cancelEdit() {
   editingOriginal.clear();
   cart = [];
   document.getElementById('cash-received').value = '';
-  document.querySelector('#checkout-btn span:first-child').textContent = 'Cobrar';
+  actualizarBotonesCobro();
   document.getElementById('cancel-edit-btn').hidden = true;
   renderCart();
   renderVentaGrid();
@@ -1083,7 +1094,20 @@ document.getElementById('check-version').addEventListener('click', async () => {
 document.getElementById('backup-now').addEventListener('click', copiaAhora);
 document.getElementById('save-backup-dir').addEventListener('click', guardarCarpetaCopias);
 
-document.getElementById('checkout-btn').addEventListener('click', checkout);
+// Un toque = método de pago y cobro. Es el paso que más se repite del día.
+document.getElementById('pay-cash-btn').addEventListener('click', () => {
+  method = 'efectivo';
+  checkout();
+});
+document.getElementById('pay-card-btn').addEventListener('click', () => {
+  method = 'tarjeta';
+  checkout();
+});
+document.getElementById('toggle-extras').addEventListener('click', () => {
+  const extras = document.getElementById('checkout-extras');
+  extras.hidden = !extras.hidden;
+  document.getElementById('toggle-extras').textContent = extras.hidden ? 'Más opciones' : 'Ocultar opciones';
+});
 document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit);
 document.getElementById('open-drawer-btn').addEventListener('click', async () => {
   const button = document.getElementById('open-drawer-btn');
@@ -1180,18 +1204,6 @@ document.getElementById('export-csv').addEventListener('click', () => {
   link.remove();
 });
 
-document.getElementById('pay-efectivo').addEventListener('click', function () {
-  method = 'efectivo';
-  this.classList.add('active');
-  document.getElementById('pay-tarjeta').classList.remove('active');
-  document.getElementById('cash-payment').hidden = false;
-});
-document.getElementById('pay-tarjeta').addEventListener('click', function () {
-  method = 'tarjeta';
-  this.classList.add('active');
-  document.getElementById('pay-efectivo').classList.remove('active');
-  document.getElementById('cash-payment').hidden = true;
-});
 
 document.querySelectorAll('[data-view]').forEach((btn) => {
   btn.addEventListener('click', () => {
