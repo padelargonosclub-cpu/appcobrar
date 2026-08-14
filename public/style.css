@@ -541,7 +541,7 @@ button:focus-visible {
 
 .catalog-cols {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) 135px 100px 78px 125px 40px;
+  grid-template-columns: minmax(150px, 1fr) 120px 92px 74px 112px 62px 40px;
   gap: 12px;
   align-items: center;
 }
@@ -609,6 +609,20 @@ button:focus-visible {
   color: var(--muted);
   transition: background .12s, color .12s;
 }
+.order-btns { display: flex; gap: 3px; }
+.order-btn {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.order-btn:hover { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-dark); }
+
 .del-btn:hover { background: var(--red-soft); color: var(--red); }
 .del-btn svg { width: 17px; height: 17px; }
 
@@ -923,7 +937,7 @@ button:focus-visible {
 
   .catalog-head { display: none; }
   .catalog-row .badge { display: none; }
-  .catalog-cols { grid-template-columns: minmax(120px, 1fr) 78px 100px 38px; gap: 8px; }
+  .catalog-cols { grid-template-columns: minmax(110px, 1fr) 70px 92px 56px 38px; gap: 8px; }
   .stock-entry-form { grid-template-columns: 1fr 1fr; }
   .stock-entry-form .field:nth-child(3), .stock-entry-form .btn-primary { grid-column: 1 / -1; }
   .stock-entry-row { grid-template-columns: 82px 1fr 55px; }

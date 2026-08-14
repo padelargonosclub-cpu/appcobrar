@@ -244,6 +244,36 @@ async function main() {
   comprobar('se puede corregir el nombre', renombrado.cuerpo.holder_name === 'Pedro G. Ruiz');
   comprobar('sin perder los partidos gastados', renombrado.cuerpo.used === 1, `${renombrado.cuerpo.used}`);
 
+  console.log('\n# Orden de las fichas');
+  const orden0 = (await api('/api/products')).cuerpo;
+  comprobar('cada producto nace con su posicion', orden0.every((p) => p.position > 0), JSON.stringify(orden0.map((p) => p.position)));
+  comprobar('sin dos productos en la misma posicion', new Set(orden0.map((p) => p.position)).size === orden0.length);
+  const nuevo = await api('/api/products', { method: 'POST', pin: PIN_ANA, body: { name: 'Ultimo de la fila', category: 'Otros', price: 1 } });
+  comprobar('un producto nuevo va al final, no en medio',
+    nuevo.cuerpo.position === Math.max(...orden0.map((p) => p.position)) + 1,
+    `posicion ${nuevo.cuerpo.position}`);
+  await api(`/api/products/${nuevo.cuerpo.id}`, { method: 'DELETE', pin: PIN_ANA });
+  comprobar('vienen ordenados por posicion',
+    orden0.every((p, i) => i === 0 || orden0[i - 1].position <= p.position));
+
+  const alReves = orden0.map((p) => p.id).reverse();
+  comprobar('cambiar el orden exige PIN',
+    (await api('/api/products/order', { method: 'PUT', body: { ids: alReves } })).status === 401);
+  comprobar('no cuela un orden al que le falta un producto',
+    (await api('/api/products/order', { method: 'PUT', pin: PIN_ANA, body: { ids: alReves.slice(1) } })).status === 400);
+  comprobar('ni uno con un id inventado',
+    (await api('/api/products/order', { method: 'PUT', pin: PIN_ANA, body: { ids: [...alReves.slice(1), 999999] } })).status === 400);
+  comprobar('se guarda el orden nuevo',
+    (await api('/api/products/order', { method: 'PUT', pin: PIN_ANA, body: { ids: alReves } })).status === 200);
+
+  const orden1 = (await api('/api/products')).cuerpo;
+  comprobar('y el catalogo sale justo al reves que antes',
+    orden1.map((p) => p.id).join(',') === alReves.join(','), orden1.map((p) => p.name).join(' | '));
+  comprobar('sin posiciones repetidas',
+    new Set(orden1.map((p) => p.position)).size === orden1.length);
+  // Se deja como estaba para no descolocar las comprobaciones siguientes.
+  await api('/api/products/order', { method: 'PUT', pin: PIN_ANA, body: { ids: orden0.map((p) => p.id) } });
+
   console.log('\n# Versión');
   const version = await api('/api/version');
   const esperada = require('../package.json').version;

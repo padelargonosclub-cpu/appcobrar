@@ -150,14 +150,34 @@ function desgloseIva(day, hasta = day) {
   });
 }
 
+// Orden de las fichas en la pantalla de cobro, decidido a mano por el club.
+// Un orden fijo vale más que uno "óptimo" que se recoloque solo: quien está en
+// la barra va por memoria, y si las casillas se mueven, tiene que leerlas.
+// Va después de las migraciones de `sales`: la siembra mira voided_at.
+if (!productColumns.includes('position')) {
+  db.exec('ALTER TABLE products ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+  // Se siembra con lo más vendido delante, que es de donde venimos.
+  const orden = db.prepare(
+    `SELECT p.id FROM products p ORDER BY (
+       SELECT COUNT(DISTINCT s.id) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+       WHERE i.product_id = p.id AND s.voided_at IS NULL
+     ) DESC, p.category, p.name`
+  ).all();
+  const sembrar = db.transaction((filas) => {
+    const upd = db.prepare('UPDATE products SET position = ? WHERE id = ?');
+    filas.forEach((f, i) => upd.run(i + 1, f.id));
+  });
+  sembrar(orden);
+}
+
 // Grips y bolas forman parte de una única categoría de material deportivo.
 db.prepare("UPDATE products SET category = 'Material deportivo' WHERE category IN ('Bolas', 'Grips')").run();
 
 // Datos de ejemplo, solo la primera vez que se arranca (tabla vacía)
 const seedCount = db.prepare('SELECT COUNT(*) AS c FROM products').get().c;
 if (seedCount === 0) {
-  const insert = db.prepare('INSERT INTO products (name, category, price, stock) VALUES (?,?,?,?)');
-  const seed = db.transaction((rows) => { rows.forEach((r) => insert.run(...r)); });
+  const insert = db.prepare('INSERT INTO products (name, category, price, stock, position) VALUES (?,?,?,?,?)');
+  const seed = db.transaction((rows) => { rows.forEach((r, i) => insert.run(...r, i + 1)); });
   seed([
     ['Agua 0,5L', 'Bebidas', 1.5, 40],
     ['Refresco', 'Bebidas', 2.0, 30],
@@ -401,9 +421,26 @@ app.get('/api/products', (req, res) => {
        WHERE i.product_id = p.id AND s.voided_at IS NULL
          AND s.created_at >= datetime('now','localtime','-60 days')
      ) AS recent_sales
-     FROM products p ORDER BY p.category, p.name`
+     FROM products p ORDER BY p.position, p.name`
   ).all();
   res.json(products);
+});
+
+// Se manda la lista entera de ids en el orden deseado: es una operación sola,
+// no puede quedarse a medias y dejar dos productos en la misma posición.
+app.put('/api/products/order', requireAdmin, (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number) : null;
+  if (!ids || ids.length === 0) return res.status(400).json({ error: 'Falta el orden.' });
+  const existentes = db.prepare('SELECT id FROM products').all().map((p) => p.id);
+  if (ids.length !== existentes.length || !existentes.every((id) => ids.includes(id))) {
+    return res.status(400).json({ error: 'El orden no incluye exactamente los productos que hay.' });
+  }
+  const guardar = db.transaction(() => {
+    const upd = db.prepare('UPDATE products SET position = ? WHERE id = ?');
+    ids.forEach((id, i) => upd.run(i + 1, id));
+  });
+  guardar();
+  res.json({ ok: true });
 });
 
 app.post('/api/products', requireAdmin, (req, res) => {
@@ -411,9 +448,11 @@ app.post('/api/products', requireAdmin, (req, res) => {
   if (!name || !category || price == null) {
     return res.status(400).json({ error: 'Faltan campos obligatorios (nombre, categoría, precio).' });
   }
+  // Los productos nuevos van al final de la rejilla, no en medio.
+  const siguiente = db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS n FROM products').get().n;
   const info = db
-    .prepare('INSERT INTO products (name, category, price, stock, unlimited_stock, vat_rate) VALUES (?,?,?,?,?,?)')
-    .run(name, category, Number(price), Number(stock) || 0, unlimited_stock ? 1 : 0, normalizarIva(req.body.vat_rate));
+    .prepare('INSERT INTO products (name, category, price, stock, unlimited_stock, vat_rate, position) VALUES (?,?,?,?,?,?,?)')
+    .run(name, category, Number(price), Number(stock) || 0, unlimited_stock ? 1 : 0, normalizarIva(req.body.vat_rate), siguiente);
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
   logAction(req.user, 'producto_creado', `${product.name} · ${product.price} €`);
   res.status(201).json(product);

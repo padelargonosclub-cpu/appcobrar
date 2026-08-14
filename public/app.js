@@ -275,6 +275,10 @@ function renderCatalog() {
         ${[21, 10, 4, 0].map((t) => `<option value="${t}"${Number(p.vat_rate) === t ? ' selected' : ''}>${t === 0 ? 'Sin IVA' : t + ' %'}</option>`).join('')}
       </select>
       <span class="stock-editor"><input type="number" step="1" min="0" class="num stock-input" data-id="${p.id}" value="${p.stock}" ${p.unlimited_stock ? 'disabled' : ''} aria-label="Stock de ${escapeHtml(p.name)}"><label title="Stock infinito"><input type="checkbox" class="unlimited-input" data-id="${p.id}" ${p.unlimited_stock ? 'checked' : ''}> ∞</label></span>
+      <span class="order-btns">
+        <button class="order-btn up" data-id="${p.id}" title="Subir" aria-label="Subir ${escapeHtml(p.name)}">▲</button>
+        <button class="order-btn down" data-id="${p.id}" title="Bajar" aria-label="Bajar ${escapeHtml(p.name)}">▼</button>
+      </span>
       <button class="del-btn" data-id="${p.id}" title="Eliminar producto" aria-label="Eliminar ${escapeHtml(p.name)}">${ICON_TRASH}</button>
     `;
     el.appendChild(row);
@@ -338,6 +342,9 @@ function renderCatalog() {
       await loadProducts();
     });
   });
+  el.querySelectorAll('.order-btn').forEach((btn) => {
+    btn.addEventListener('click', () => moverProducto(Number(btn.dataset.id), btn.classList.contains('up') ? -1 : 1));
+  });
   el.querySelectorAll('.del-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       await fetch(`/api/products/${btn.dataset.id}`, { method: 'DELETE' });
@@ -348,15 +355,32 @@ function renderCatalog() {
   });
 }
 
+// Intercambia el producto con su vecino y manda la lista entera al servidor,
+// que es lo que evita que dos productos acaben en la misma posición.
+async function moverProducto(id, direccion) {
+  const orden = products.map((p) => p.id);
+  const i = orden.indexOf(id);
+  const j = i + direccion;
+  if (i < 0 || j < 0 || j >= orden.length) return;
+  [orden[i], orden[j]] = [orden[j], orden[i]];
+  const res = await fetch('/api/products/order', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: orden }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.error || 'No se pudo cambiar el orden.', 'error');
+    return;
+  }
+  await loadProducts();
+}
+
 function renderVentaGrid() {
   const el = document.getElementById('venta-grid');
   el.innerHTML = '';
   renderCategoryFilters();
-  const visibleProducts = (selectedCategory === 'Todos' ? products : products.filter((p) => p.category === selectedCategory))
-    // Lo más cobrado, delante. Los que nunca se venden se hunden solos, sin
-    // tener que mantener ninguna lista a mano.
-    .slice()
-    .sort((a, b) => (b.recent_sales || 0) - (a.recent_sales || 0) || a.name.localeCompare(b.name, 'es'));
+  // El orden lo decide el club desde el catálogo y no se toca solo: quien está
+  // en la barra va por memoria, y una casilla que se mueve obliga a leer.
+  const visibleProducts = selectedCategory === 'Todos' ? products : products.filter((p) => p.category === selectedCategory);
   visibleProducts.forEach((p) => {
     const line = cart.find((c) => c.id === p.id);
     const used = line ? line.qty : 0;
