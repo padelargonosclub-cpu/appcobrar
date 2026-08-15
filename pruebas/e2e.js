@@ -351,6 +351,68 @@ async function main() {
   comprobar('la salida queda en el registro de actividad',
     (await api('/api/audit', { pin: PIN_ANA })).cuerpo.some((e) => e.action === 'salida_stock' && e.detail.includes('torneo')));
 
+  console.log('\n# Céntimos, líneas repetidas y doble anulación');
+  // 1,30 € x 3 son 3,90 € en la pantalla, pero 3.9000000000000004 en coma
+  // flotante: pagar con los 3,90 justos daba "el efectivo no cubre el total".
+  const cafe = (await api('/api/products', { method: 'POST', pin: PIN_ANA, body: { name: 'Café de prueba', category: 'Bebidas', price: 1.3, stock: 4 } })).cuerpo;
+  const tresCafes = await api('/api/sales', { method: 'POST', body: { items: [{ productId: cafe.id, qty: 3 }], method: 'efectivo', amountReceived: 3.9 } });
+  comprobar('tres cafés de 1,30 se cobran con los 3,90 justos', tresCafes.status === 201, `dio ${tresCafes.status}: ${tresCafes.texto}`);
+  comprobar('el total guardado son 3,9 limpios', tresCafes.cuerpo.total === 3.9, `dio ${tresCafes.cuerpo.total}`);
+  comprobar('y el cambio es 0 exacto', tresCafes.cuerpo.change_due === 0, `dio ${tresCafes.cuerpo.change_due}`);
+
+  // Queda 1 café. Dos líneas de 1 en el mismo ticket suman 2: comprobando cada
+  // línea por separado las dos cabían y el stock acababa en -1.
+  const repetido = await api('/api/sales', { method: 'POST', body: { items: [{ productId: cafe.id, qty: 1 }, { productId: cafe.id, qty: 1 }], method: 'tarjeta' } });
+  comprobar('dos líneas del mismo producto no se saltan el stock', repetido.status === 400, `dio ${repetido.status}: ${repetido.texto}`);
+  const trasRepetido = (await api('/api/products')).cuerpo.find((p) => p.id === cafe.id).stock;
+  comprobar('y el stock no se queda en negativo', trasRepetido === 1, `stock ${trasRepetido}`);
+  comprobar('media unidad no es una cantidad válida',
+    (await api('/api/sales', { method: 'POST', body: { items: [{ productId: cafe.id, qty: 1.5 }], method: 'tarjeta' } })).status === 400);
+
+  // Anular dos veces es un doble clic, no una avería: antes respondía 500 con
+  // un "reinicia el servidor" que no venía a cuento.
+  const paraAnular = await api('/api/sales', { method: 'POST', body: { items: [{ productId: cafe.id, qty: 1 }], method: 'tarjeta' } });
+  comprobar('se anula el cobro',
+    (await api(`/api/sales/${paraAnular.cuerpo.id}`, { method: 'DELETE', pin: PIN_ANA, body: { reason: 'prueba' } })).status === 200);
+  const dobleAnulacion = await api(`/api/sales/${paraAnular.cuerpo.id}`, { method: 'DELETE', pin: PIN_ANA, body: { reason: 'otra vez' } });
+  comprobar('anularlo otra vez avisa (409), no da error de servidor', dobleAnulacion.status === 409, `dio ${dobleAnulacion.status}`);
+  comprobar('y lo explica en cristiano', String(dobleAnulacion.cuerpo.error).includes('ya estaba anulado'), dobleAnulacion.texto);
+  comprobar('un cobro que no existe sigue dando 404',
+    (await api('/api/sales/999999', { method: 'DELETE', pin: PIN_ANA, body: { reason: 'x' } })).status === 404);
+
+  console.log('\n# Corregir un cobro');
+  const tostada = (await api('/api/products', { method: 'POST', pin: PIN_ANA, body: { name: 'Tostada', category: 'Comida', price: 2, stock: 10 } })).cuerpo;
+  const original = await api('/api/sales', { method: 'POST', body: { items: [{ productId: tostada.id, qty: 3 }], method: 'efectivo', note: 'Pedro, pista 2' } });
+  comprobar('se cobra con su nota', original.status === 201 && original.cuerpo.note === 'Pedro, pista 2', original.texto);
+  comprobar('el stock baja a 7', (await api('/api/products')).cuerpo.find((p) => p.id === tostada.id).stock === 7);
+
+  const corregido = await api(`/api/sales/${original.cuerpo.id}`, { method: 'PUT', pin: PIN_ANA, body: { items: [{ productId: tostada.id, qty: 1 }], method: 'tarjeta', note: 'Pedro, pista 2' } });
+  comprobar('se corrige a una unidad', corregido.status === 200 && corregido.cuerpo.total === 2, corregido.texto);
+  comprobar('y el stock se rehace entero (10 - 1 = 9)',
+    (await api('/api/products')).cuerpo.find((p) => p.id === tostada.id).stock === 9);
+  // Antes la nota se aceptaba en la corrección y se tiraba sin avisar.
+  comprobar('la nota sobrevive a la corrección', corregido.cuerpo.note === 'Pedro, pista 2', String(corregido.cuerpo.note));
+  const renotado = await api(`/api/sales/${original.cuerpo.id}`, { method: 'PUT', pin: PIN_ANA, body: { items: [{ productId: tostada.id, qty: 1 }], method: 'tarjeta', note: 'Pedro, pista 4' } });
+  comprobar('y se puede cambiar al corregir', renotado.cuerpo.note === 'Pedro, pista 4', String(renotado.cuerpo.note));
+  comprobar('corregir exige PIN',
+    (await api(`/api/sales/${original.cuerpo.id}`, { method: 'PUT', body: { items: [{ productId: tostada.id, qty: 1 }], method: 'tarjeta' } })).status === 401);
+  comprobar('la corrección queda en el registro de actividad',
+    (await api('/api/audit', { pin: PIN_ANA })).cuerpo.some((e) => e.action === 'venta_editada'));
+
+  console.log('\n# Nombres del registro de actividad');
+  // Cada acción que registra el servidor tiene que tener nombre en la interfaz,
+  // o el registro se llena de jerga interna tipo "caja_salida".
+  // Se lee el diccionario de la interfaz de verdad, no una copia aquí: si no,
+  // esta prueba pasaría mientras el registro sigue enseñando jerga.
+  const fuenteInterfaz = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const bloque = fuenteInterfaz.match(/const nombres = \{([\s\S]*?)\n {2}\};/);
+  const conocidas = new Set([...(bloque ? bloque[1] : '').matchAll(/([a-z_]+):/g)].map((m) => m[1]));
+  comprobar('se encuentra el diccionario de la interfaz', conocidas.size > 10, `encontradas ${conocidas.size}`);
+  const registradas = [...new Set((await api('/api/audit', { pin: PIN_ANA })).cuerpo.map((e) => e.action))];
+  const sinTraducir = registradas.filter((a) => !conocidas.has(a));
+  comprobar('todas las acciones registradas tienen nombre en la interfaz',
+    sinTraducir.length === 0, 'sin traducir: ' + sinTraducir.join(', '));
+
   console.log('\n# Copias de seguridad');
   const copias = await api('/api/backups');
   comprobar('informa de la carpeta y de las copias', typeof copias.cuerpo.dir === 'string' && Array.isArray(copias.cuerpo.copias));

@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS cash_closures (
   user_name TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- Índices por las columnas que se consultan de continuo: el historial pide las
+-- líneas de 200 cobros uno a uno, y sin índice cada una recorre la tabla entera.
+CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_bono_uses_bono ON bono_uses(bono_id);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_day ON cash_movements(day);
 `);
 
 // Migraciones compatibles con bases de datos creadas por versiones anteriores.
@@ -127,6 +134,14 @@ if (!saleColumns.includes('change_due')) db.exec('ALTER TABLE sales ADD COLUMN c
 if (!saleColumns.includes('voided_at')) db.exec('ALTER TABLE sales ADD COLUMN voided_at TEXT');
 if (!saleColumns.includes('void_reason')) db.exec('ALTER TABLE sales ADD COLUMN void_reason TEXT');
 if (!saleColumns.includes('note')) db.exec('ALTER TABLE sales ADD COLUMN note TEXT');
+
+// El dinero se redondea a céntimos en cuanto se calcula. En coma flotante,
+// 1,30 € × 3 da 3.9000000000000004: la pantalla enseña 3,90 € y, si el cajero
+// tecleaba justo esos 3,90 de efectivo, el cobro se rechazaba por una
+// diferencia que nadie puede ver.
+function euros(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
 
 const TIPOS_IVA = [21, 10, 4, 0];
 
@@ -354,7 +369,10 @@ app.get('/api/backups', (req, res) => {
     porDefecto: BACKUP_DIR,
     personalizada: Boolean(getSetting('backup_dir')),
     // Una carpeta sincronizada saca las copias de este disco, que es la gracia.
-    enLaNube: /onedrive|dropbox|google drive|nextcloud|icloud/i.test(dir),
+    // Google Drive se monta como "G:\Mi unidad" y no lleva "google" en la ruta,
+    // así que hay que reconocerla por el nombre de la unidad o se avisaba en
+    // rojo de unas copias que sí estaban a salvo.
+    enLaNube: /onedrive|dropbox|google drive|mi unidad|my drive|drivefs|nextcloud|icloud|proton drive/i.test(dir),
     copias: copias.slice(0, 10),
     total: copias.length,
   });
@@ -412,18 +430,9 @@ app.post('/api/cash-drawer/open', requireAdmin, (req, res) => {
 
 // ---------- Productos ----------
 
-// Se acompaña de cuántas veces se ha cobrado cada producto en los últimos 60
-// días, para que la rejilla de venta ponga delante lo que de verdad se vende.
+// En el orden que haya decidido el club desde el catálogo.
 app.get('/api/products', (req, res) => {
-  const products = db.prepare(
-    `SELECT p.*, (
-       SELECT COUNT(DISTINCT s.id) FROM sale_items i JOIN sales s ON s.id = i.sale_id
-       WHERE i.product_id = p.id AND s.voided_at IS NULL
-         AND s.created_at >= datetime('now','localtime','-60 days')
-     ) AS recent_sales
-     FROM products p ORDER BY p.position, p.name`
-  ).all();
-  res.json(products);
+  res.json(db.prepare('SELECT * FROM products ORDER BY position, name').all());
 });
 
 // Se manda la lista entera de ids en el orden deseado: es una operación sola,
@@ -556,20 +565,27 @@ app.post('/api/sales', (req, res) => {
 
   const runSale = db.transaction(() => {
     let total = 0;
+    const pedido = new Map();
     const resolved = items.map(({ productId, qty }) => {
       const product = getProduct.get(productId);
       if (!product) throw new Error(`El producto ${productId} no existe.`);
-      if (!qty || qty <= 0) throw new Error('Cantidad inválida.');
-      if (!product.unlimited_stock && product.stock < qty) throw new Error(`Stock insuficiente de ${product.name}.`);
+      qty = Number(qty);
+      if (!Number.isInteger(qty) || qty <= 0) throw new Error('Las unidades tienen que ser un número entero mayor que cero.');
+      // Dos líneas del mismo producto se suman antes de mirar el stock: mirando
+      // cada una por su cuenta, las dos caben y el almacén acaba en negativo.
+      const acumulado = (pedido.get(product.id) || 0) + qty;
+      pedido.set(product.id, acumulado);
+      if (!product.unlimited_stock && product.stock < acumulado) throw new Error(`Stock insuficiente de ${product.name}.`);
       total += product.price * qty;
       return { product, qty };
     });
+    total = euros(total);
 
-    const received = method === 'efectivo' && amountReceived != null && amountReceived !== '' ? Number(amountReceived) : null;
+    const received = method === 'efectivo' && amountReceived != null && amountReceived !== '' ? euros(amountReceived) : null;
     if (method === 'efectivo' && received != null && (!Number.isFinite(received) || received < total)) {
       throw new Error('El efectivo recibido no cubre el total.');
     }
-    const change = method === 'efectivo' && received != null ? received - total : null;
+    const change = method === 'efectivo' && received != null ? euros(received - total) : null;
     const saleInfo = insertSale.run(total, method, received, change, note || null);
     resolved.forEach(({ product, qty }) => {
       if (!product.unlimited_stock) updateStock.run(qty, product.id);
@@ -604,20 +620,28 @@ app.put('/api/sales/:id', requireAdmin, (req, res) => {
     }
 
     let total = 0;
+    const pedido = new Map();
     const resolved = items.map(({ productId, qty }) => {
       const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
       if (!product) throw new Error(`El producto ${productId} ya no existe.`);
       qty = Number(qty);
-      if (!Number.isInteger(qty) || qty <= 0) throw new Error('Cantidad inválida.');
-      if (!product.unlimited_stock && product.stock < qty) throw new Error(`Stock insuficiente de ${product.name}.`);
+      if (!Number.isInteger(qty) || qty <= 0) throw new Error('Las unidades tienen que ser un número entero mayor que cero.');
+      const acumulado = (pedido.get(product.id) || 0) + qty;
+      pedido.set(product.id, acumulado);
+      if (!product.unlimited_stock && product.stock < acumulado) throw new Error(`Stock insuficiente de ${product.name}.`);
       total += product.price * qty;
       return { product, qty };
     });
-    const received = method === 'efectivo' && amountReceived != null && amountReceived !== '' ? Number(amountReceived) : null;
+    total = euros(total);
+    const received = method === 'efectivo' && amountReceived != null && amountReceived !== '' ? euros(amountReceived) : null;
     if (method === 'efectivo' && received != null && (!Number.isFinite(received) || received < total)) throw new Error('El efectivo recibido no cubre el total.');
-    const change = method === 'efectivo' && received != null ? received - total : null;
-    db.prepare('UPDATE sales SET total = ?, method = ?, amount_received = ?, change_due = ? WHERE id = ?')
-      .run(total, method, received, change, req.params.id);
+    const change = method === 'efectivo' && received != null ? euros(received - total) : null;
+    // La nota también se guarda al corregir. Antes se aceptaba lo que escribías
+    // y se tiraba por el camino, sin decir nada. El editor la trae ya puesta,
+    // así que dejarla en blanco es querer borrarla.
+    const note = String(req.body.note || '').trim().slice(0, 120);
+    db.prepare('UPDATE sales SET total = ?, method = ?, amount_received = ?, change_due = ?, note = ? WHERE id = ?')
+      .run(total, method, received, change, note || null, req.params.id);
     db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(req.params.id);
     const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, product_name, unit_price, qty, vat_rate) VALUES (?,?,?,?,?,?)');
     for (const { product, qty } of resolved) {
@@ -637,10 +661,14 @@ app.put('/api/sales/:id', requireAdmin, (req, res) => {
 });
 
 app.delete('/api/sales/:id', requireAdmin, (req, res) => {
+  // Los dos avisos previstos se responden antes de entrar en la transacción:
+  // dentro, cualquier excepción acababa contestando "reinicia el servidor", que
+  // para un doble clic en Anular asusta sin que pase nada malo.
+  const anterior = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
+  if (!anterior) return res.status(404).json({ error: 'Venta no encontrada.' });
+  if (anterior.voided_at) return res.status(409).json({ error: 'Este cobro ya estaba anulado.' });
+
   const voidSale = db.transaction(() => {
-    const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
-    if (!sale) return false;
-    if (sale.voided_at) throw new Error('Este cobro ya estaba anulado.');
     const items = db.prepare('SELECT product_id, qty FROM sale_items WHERE sale_id = ?').all(req.params.id);
     for (const item of items) {
       if (item.product_id) {
@@ -658,18 +686,16 @@ app.delete('/api/sales/:id', requireAdmin, (req, res) => {
       db.prepare("UPDATE bonos SET voided_at = datetime('now','localtime'), void_reason = ? WHERE id = ?")
         .run(`Se anuló el cobro: ${reason}`, bono.id);
     }
-    return true;
   });
 
   try {
-    const antes = db.prepare('SELECT total, method FROM sales WHERE id = ?').get(req.params.id);
-    if (!voidSale()) return res.status(404).json({ error: 'Venta no encontrada.' });
+    voidSale();
     const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
-    logAction(req.user, 'venta_anulada', `Cobro #${req.params.id} de ${antes.total} € (${antes.method}) · motivo: ${sale.void_reason}`);
+    logAction(req.user, 'venta_anulada', `Cobro #${req.params.id} de ${anterior.total} € (${anterior.method}) · motivo: ${sale.void_reason}`);
     res.json(sale);
   } catch (err) {
-    console.error(`[ventas] No se pudo borrar la venta ${req.params.id}:`, err);
-    res.status(500).json({ error: 'No se pudo borrar el cobro. Reinicia el servidor e inténtalo de nuevo.' });
+    console.error(`[ventas] No se pudo anular la venta ${req.params.id}:`, err);
+    res.status(500).json({ error: 'No se pudo anular el cobro. Reinicia el servidor e inténtalo de nuevo.' });
   }
 });
 
@@ -884,7 +910,7 @@ app.get('/api/bonos', (req, res) => {
 app.post('/api/bonos', (req, res) => {
   const holderName = String(req.body.holderName || '').trim().slice(0, 80);
   const totalUses = Number(req.body.totalUses);
-  const price = Number(req.body.price);
+  const price = euros(req.body.price);
   // Un bono de partidos es alquiler de pista, así que por defecto va al mismo
   // tipo que las pistas; se puede indicar otro al venderlo.
   const vatRate = normalizarIva(req.body.vatRate, 21);
@@ -897,11 +923,11 @@ app.post('/api/bonos', (req, res) => {
   if (!Number.isFinite(price) || price < 0) return res.status(400).json({ error: 'Precio inválido.' });
   if (!['efectivo', 'tarjeta'].includes(method)) return res.status(400).json({ error: 'Método de pago inválido.' });
   const received = method === 'efectivo' && req.body.amountReceived != null && req.body.amountReceived !== ''
-    ? Number(req.body.amountReceived) : null;
+    ? euros(req.body.amountReceived) : null;
   if (received != null && (!Number.isFinite(received) || received < price)) {
     return res.status(400).json({ error: 'El efectivo recibido no cubre el precio del bono.' });
   }
-  const change = received != null ? received - price : null;
+  const change = received != null ? euros(received - price) : null;
 
   const crear = db.transaction(() => {
     const venta = db.prepare('INSERT INTO sales (total, method, amount_received, change_due) VALUES (?,?,?,?)')

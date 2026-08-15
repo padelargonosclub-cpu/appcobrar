@@ -98,12 +98,29 @@ function fmt(n) {
   return n.toFixed(2).replace('.', ',') + ' €';
 }
 
+// Mismo redondeo a céntimos que hace el servidor. Sin él, 1,30 € × 3 vale
+// 3.9000000000000004: el ticket enseña 3,90 € y teclear esos mismos 3,90 de
+// efectivo daba "el efectivo recibido no cubre el total".
+function euros(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
 
 function findProduct(id) {
   return products.find((p) => p.id === id);
+}
+
+// Los cambios del catálogo se guardan solos según se tocan. Si alguno falla —el
+// PIN, un precio imposible— hay que decirlo: si no, la casilla vuelve al valor
+// de antes sin explicación y parece que el programa se ha colgado.
+async function avisarSiFalla(res, porDefecto) {
+  if (res.ok) return true;
+  const data = await res.json().catch(() => ({}));
+  showToast(data.error || porDefecto, 'error');
+  return false;
 }
 
 async function loadProducts() {
@@ -192,8 +209,11 @@ async function loadBackups() {
   const estado = document.getElementById('backup-state');
   estado.className = `backup-state${info.enLaNube ? ' ok' : ' aviso'}`;
   estado.textContent = info.enLaNube
-    ? `Las copias van a una carpeta sincronizada con la nube: si este ordenador se rompe, no se pierden. Hay ${info.total} guardadas.`
-    : 'Estas copias están en el mismo disco que la base de datos, así que no protegen del fallo más probable: que ese disco muera. Apúntalas a una carpeta de OneDrive.';
+    // Que la carpeta se llame así no demuestra que esté sincronizando: una
+    // carpeta de nube sin sesión iniciada acepta archivos y no los sube a
+    // ninguna parte. Por eso se pide comprobarlo, en vez de prometerlo.
+    ? `Las copias van a una carpeta de la nube: hay ${info.total} guardadas. Ábrela de vez en cuando desde el móvil para confirmar que llegan; una carpeta sin sesión iniciada no sincroniza nada.`
+    : 'Estas copias están en el mismo disco que la base de datos, así que no protegen del fallo más probable: que ese disco muera. Apúntalas a una carpeta de Google Drive o de OneDrive.';
   document.getElementById('backup-list').innerHTML = info.copias.map((c) => {
     const fecha = new Date(c.modified);
     return `<div class="backup-row"><span>${escapeHtml(c.name)}</span><small>${fecha.toLocaleDateString('es-ES')} ${fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</small><small>${Math.max(1, Math.round(c.size / 1024))} KB</small></div>`;
@@ -306,39 +326,43 @@ function renderCatalog() {
   el.querySelectorAll('.price-input').forEach((inp) => {
     inp.addEventListener('change', async () => {
       const p = findProduct(Number(inp.dataset.id));
-      await fetch(`/api/products/${p.id}`, {
+      const res = await fetch(`/api/products/${p.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: p.name, category: p.category, price: Number(inp.value) }),
       });
+      await avisarSiFalla(res, 'No se pudo cambiar el precio.');
       await loadProducts();
     });
   });
   el.querySelectorAll('.stock-input').forEach((inp) => {
     inp.addEventListener('change', async () => {
       const p = findProduct(Number(inp.dataset.id));
-      await fetch(`/api/products/${p.id}/stock`, {
+      const res = await fetch(`/api/products/${p.id}/stock`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stock: Number(inp.value), reason: 'ajuste manual' }),
       });
+      await avisarSiFalla(res, 'No se pudo ajustar el stock.');
       await loadProducts();
     });
   });
   el.querySelectorAll('.vat-input').forEach((sel) => {
     sel.addEventListener('change', async () => {
       const p = findProduct(Number(sel.dataset.id));
-      await fetch(`/api/products/${p.id}`, {
+      const res = await fetch(`/api/products/${p.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vat_rate: Number(sel.value) }),
       });
+      await avisarSiFalla(res, 'No se pudo cambiar el IVA.');
       await loadProducts();
     });
   });
   el.querySelectorAll('.unlimited-input').forEach((inp) => {
     inp.addEventListener('change', async () => {
       const p = findProduct(Number(inp.dataset.id));
-      await fetch(`/api/products/${p.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unlimited_stock: inp.checked }) });
+      const res = await fetch(`/api/products/${p.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unlimited_stock: inp.checked }) });
+      await avisarSiFalla(res, 'No se pudo cambiar el stock infinito.');
       await loadProducts();
     });
   });
@@ -347,7 +371,8 @@ function renderCatalog() {
   });
   el.querySelectorAll('.del-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await fetch(`/api/products/${btn.dataset.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/products/${btn.dataset.id}`, { method: 'DELETE' });
+      if (!await avisarSiFalla(res, 'No se pudo borrar el producto.')) return;
       cart = cart.filter((c) => c.id !== Number(btn.dataset.id));
       await loadProducts();
       renderCart();
@@ -449,10 +474,10 @@ function actualizarBotonesCobro() {
 }
 
 function cartTotal() {
-  return cart.reduce((sum, c) => {
+  return euros(cart.reduce((sum, c) => {
     const p = findProduct(c.id);
     return sum + (p ? p.price * c.qty : 0);
-  }, 0);
+  }, 0));
 }
 
 function renderCart() {
@@ -490,8 +515,8 @@ function renderCart() {
 
 function updateChange() {
   const input = document.getElementById('cash-received');
-  const received = input.value.trim() === '' ? null : Number(input.value);
-  document.getElementById('cash-change').textContent = received == null ? 'Sin calcular' : fmt(Math.max(0, received - cartTotal()));
+  const received = input.value.trim() === '' ? null : euros(input.value);
+  document.getElementById('cash-change').textContent = received == null ? 'Sin calcular' : fmt(Math.max(0, euros(received - cartTotal())));
 }
 
 async function checkout() {
@@ -506,7 +531,7 @@ async function checkout() {
     method,
     note: document.getElementById('sale-note').value.trim(),
     amountReceived: method === 'efectivo' && document.getElementById('cash-received').value.trim() !== ''
-      ? Number(document.getElementById('cash-received').value)
+      ? euros(document.getElementById('cash-received').value)
       : null,
   };
   if (method === 'efectivo' && body.amountReceived != null && (!Number.isFinite(body.amountReceived) || body.amountReceived < cartTotal())) {
@@ -632,7 +657,13 @@ function editSale(id, sales) {
   cart = sale.items.map((i) => ({ id: i.product_id, qty: i.qty }));
   method = sale.method;
   document.getElementById('cash-received').value = sale.amount_received ?? '';
-  if (sale.amount_received != null) document.getElementById('checkout-extras').hidden = false;
+  // La nota del cobro se trae tal cual: si el editor saliera en blanco, guardar
+  // la corrección borraría la nota que servía para cuadrar con la reserva.
+  document.getElementById('sale-note').value = sale.note ?? '';
+  if (sale.amount_received != null || sale.note) {
+    document.getElementById('checkout-extras').hidden = false;
+    document.getElementById('toggle-extras').textContent = 'Ocultar opciones';
+  }
   actualizarBotonesCobro();
   document.getElementById('cancel-edit-btn').hidden = false;
   document.querySelector('[data-view="venta"]').click();
@@ -645,6 +676,7 @@ function cancelEdit() {
   editingOriginal.clear();
   cart = [];
   document.getElementById('cash-received').value = '';
+  document.getElementById('sale-note').value = '';
   actualizarBotonesCobro();
   document.getElementById('cancel-edit-btn').hidden = true;
   renderCart();
@@ -1014,10 +1046,17 @@ async function loadAudit() {
     el.innerHTML = '<div class="empty-state"><p>Todavía no hay actividad registrada</p></div>';
     return;
   }
+  // Tiene que estar cada acción que registra el servidor: la que falte sale en
+  // el registro con su nombre interno ("caja_salida"), que no lo entiende nadie.
   const nombres = {
     venta_anulada: 'Anuló un cobro', venta_editada: 'Editó un cobro', producto_creado: 'Creó un producto',
     producto_editado: 'Editó un producto', producto_borrado: 'Borró un producto', stock_ajustado: 'Ajustó stock',
-    entrada_mercancia: 'Registró mercancía', cajon_abierto: 'Abrió el cajón', cierre_caja: 'Cerró la caja',
+    entrada_mercancia: 'Registró mercancía', salida_stock: 'Sacó género del stock',
+    cajon_abierto: 'Abrió el cajón', cierre_caja: 'Cerró la caja',
+    caja_apertura: 'Abrió la caja del día', caja_entrada: 'Metió dinero en el cajón',
+    caja_salida: 'Sacó dinero del cajón', caja_movimiento_borrado: 'Borró un movimiento de caja',
+    bono_partido_deshecho: 'Deshizo un partido de un bono', bono_editado: 'Cambió el nombre de un bono',
+    copia_manual: 'Hizo una copia de seguridad', copias_carpeta: 'Cambió la carpeta de las copias',
     usuario_creado: 'Dio de alta a alguien', usuario_baja: 'Dio de baja a alguien',
     pin_activado: 'Activó el PIN', pin_desactivado: 'Desactivó el PIN',
   };
@@ -1048,17 +1087,28 @@ document.getElementById('add-product').addEventListener('click', async () => {
   const stock = Number(document.getElementById('new-stock').value) || 0;
   const unlimited_stock = document.getElementById('new-unlimited').checked;
   const vat_rate = Number(document.getElementById('new-vat').value);
-  if (!name) return;
-  await fetch('/api/products', {
+  if (!name) {
+    showToast('Ponle nombre al producto.', 'error');
+    return;
+  }
+  const res = await fetch('/api/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, category, price, stock, unlimited_stock, vat_rate }),
   });
+  // Los campos solo se vacían si de verdad se ha creado: si falla el PIN o el
+  // precio, borrarlos obligaría a escribirlo todo otra vez sin saber por qué.
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.error || 'No se pudo crear el producto.', 'error');
+    return;
+  }
   document.getElementById('new-name').value = '';
   document.getElementById('new-price').value = '';
   document.getElementById('new-stock').value = '';
   document.getElementById('new-unlimited').checked = false;
   await loadProducts();
+  showToast(`${name} añadido al catálogo.`, 'success');
 });
 
 document.getElementById('toggle-stock-entry').addEventListener('click', () => {
@@ -1136,11 +1186,10 @@ document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit)
 document.getElementById('open-drawer-btn').addEventListener('click', async () => {
   const button = document.getElementById('open-drawer-btn');
   const res = await fetch('/api/cash-drawer/open', { method: 'POST' });
-  if (res.ok) {
-    button.textContent = 'Caja abierta';
-    showToast('Caja abierta correctamente.', 'success');
-    setTimeout(() => { button.textContent = 'Abrir caja'; }, 1500);
-  }
+  if (!await avisarSiFalla(res, 'No se pudo abrir el cajón.')) return;
+  button.textContent = 'Caja abierta';
+  showToast('Caja abierta correctamente.', 'success');
+  setTimeout(() => { button.textContent = 'Abrir caja'; }, 1500);
 });
 document.getElementById('history-date').value = localDateKey();
 // Por defecto, exportar el mes en curso: es lo que suele pedir la gestoría.

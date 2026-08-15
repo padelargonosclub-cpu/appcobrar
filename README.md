@@ -90,9 +90,10 @@ Tocar el producto y tocar **Efectivo** o **Tarjeta**. No hay selector de método
 aparte ni botón de confirmar: cada uno de esos dos botones ya es el cobro, con
 el importe escrito dentro.
 
-La rejilla de productos se ordena sola por lo que más se ha cobrado en los
-últimos 60 días, así que lo que se vende de verdad queda en las primeras filas y
-lo que no se vende nunca se hunde. No hay ninguna lista que mantener a mano.
+El orden de las fichas lo decide el club, con las flechas de cada producto en
+*Catálogo*. Es a propósito que no se recoloquen solas por lo más vendido: quien
+está en la barra va por memoria, y una casilla que se mueve obliga a leer la
+pantalla en lugar de pulsar. Los productos nuevos entran al final.
 
 El efectivo recibido, la nota del cobro y el botón de abrir el cajón están
 detrás de *Más opciones*: con 44 cobros reales solo uno usó el cambio y ninguno
