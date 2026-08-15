@@ -4,9 +4,10 @@ Punto de venta interno del club: catálogo con stock, cobros en efectivo o
 tarjeta, historial por día y arqueo de caja. Backend en Node.js + Express con
 base de datos SQLite, e interfaz web servida desde `public/`.
 
-La apertura del cajón está **simulada** todavía: la función `abrirCajon()` de
-`server.js` escribe un aviso en la consola en el punto exacto donde irá la
-llamada al ESP32.
+El cajón se abre a mano, con su llave. La aplicación no lo controla: hubo un
+plan para dispararlo desde un ESP32 y se ha retirado, porque un botón que no
+hacía nada solo servía para recordar que estaba pendiente. Si algún día se
+motoriza, se hará de otra forma y se añadirá entonces.
 
 ## Cómo se usa
 
@@ -95,9 +96,14 @@ El orden de las fichas lo decide el club, con las flechas de cada producto en
 está en la barra va por memoria, y una casilla que se mueve obliga a leer la
 pantalla en lugar de pulsar. Los productos nuevos entran al final.
 
-El efectivo recibido, la nota del cobro y el botón de abrir el cajón están
-detrás de *Más opciones*: con 44 cobros reales solo uno usó el cambio y ninguno
-la nota, así que estorbaban más que ayudaban.
+El efectivo recibido y el cambio están fijos en el ticket, entre el total y los
+botones de cobro, con una fila de billetes (Justo, 5, 10, 20, 50) para no
+teclear. Si lo que dan no cubre el total, en lugar del cambio aparece cuánto
+falta. Y al cobrar en efectivo, lo que hay que devolver se queda en grande hasta
+que empieza el ticket siguiente: es el rato en que de verdad hay que leerlo.
+
+Detrás de *Más opciones* queda solo la nota del cobro, que sirve para cuadrar
+con reservas de fuera ("Pedro, pista 2") y que casi nunca se usa.
 
 ## Bonos
 
@@ -307,25 +313,8 @@ más nueva publicada.
 vez que se abre. Trae un catálogo de 12 productos de partida y ninguna venta,
 así que el club empieza con el historial vacío.
 
-## Dónde conectar el ESP32
-
-En `server.js`, sustituir el `console.log` de `abrirCajon()` por la llamada real:
-
-```js
-function abrirCajon() {
-  fetch('http://192.168.1.50/abrir', {
-    method: 'POST',
-    headers: { 'X-Token': 'tu-token-secreto' },
-  }).catch((err) => console.error('No se pudo abrir el cajón:', err));
-}
-```
-
-El montaje eléctrico, el pinout del cajón Tera 330R y el plan por fases están en
-[analisis-viabilidad.md](analisis-viabilidad.md).
-
 ## Pendiente
 
-- Conectar el ESP32 (fases 0 y 1 del análisis).
 - Firmar el instalador para quitar el aviso de "editor desconocido".
 - Copias de seguridad fuera del PC del club: hoy la base de datos y sus copias
   viven en el mismo equipo, así que un disco roto se lleva las dos cosas.

@@ -434,11 +434,11 @@ async function main() {
     return n > 0;
   })());
 
-  console.log('\n# Cajón y bajas');
-  comprobar('abrir el cajón exige PIN', (await api('/api/cash-drawer/open', { method: 'POST' })).status === 401);
-  comprobar('con PIN, abre', (await api('/api/cash-drawer/open', { method: 'POST', pin: PIN_ANA })).status === 200);
-  comprobar('la apertura queda registrada',
-    (await api('/api/audit', { pin: PIN_ANA })).cuerpo.some((e) => e.action === 'cajon_abierto'));
+  console.log('\n# Bajas');
+  // La apertura del cajón ya no existe: su endpoint tiene que responder 404, no
+  // quedarse por ahí aceptando peticiones.
+  comprobar('el endpoint del cajón ya no existe',
+    (await api('/api/cash-drawer/open', { method: 'POST', pin: PIN_ANA })).status === 404);
 
   const personas = (await api('/api/users', { pin: PIN_ANA })).cuerpo;
   comprobar('se da de baja a Marta',

@@ -414,20 +414,6 @@ function scheduleBackups() {
   timer.unref();
 }
 
-// --- Apertura del cajón (simulada en esta demo) ---
-// En producción, aquí es donde el servidor llamaría por HTTP al ESP32:
-//   fetch('http://<ip-del-esp32>/abrir', { method: 'POST', headers: { 'X-Token': '<token-secreto>' } })
-// El ESP32 valida el token y dispara el relé opto-aislado que abre el cajón.
-function abrirCajon() {
-  console.log('[cajon] Apertura simulada. En producción: POST http://<ip-esp32>/abrir con token.');
-}
-
-app.post('/api/cash-drawer/open', requireAdmin, (req, res) => {
-  abrirCajon();
-  logAction(req.user, 'cajon_abierto', 'Apertura manual desde la caja');
-  res.json({ ok: true });
-});
-
 // ---------- Productos ----------
 
 // En el orden que haya decidido el club desde el catálogo.
@@ -596,7 +582,6 @@ app.post('/api/sales', (req, res) => {
 
   try {
     const saleId = runSale();
-    if (method === 'efectivo') abrirCajon();
     const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
     const saleItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId);
     res.status(201).json({ ...sale, items: saleItems });
@@ -942,7 +927,6 @@ app.post('/api/bonos', (req, res) => {
 
   try {
     const id = crear();
-    if (method === 'efectivo') abrirCajon();
     res.status(201).json(bonoConUsos(id));
   } catch (err) {
     res.status(400).json({ error: err.message });

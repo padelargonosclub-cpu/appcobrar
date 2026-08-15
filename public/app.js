@@ -51,7 +51,6 @@ window.fetch = async function protectedFetch(input, options = {}) {
   const sensitive = (url.startsWith('/api/products') && methodName !== 'GET')
     || (/^\/api\/sales\/\d+$/.test(url) && ['PUT', 'DELETE'].includes(methodName))
     || (url === '/api/stock-entries' && methodName === 'POST')
-    || (url === '/api/cash-drawer/open' && methodName === 'POST')
     || (url === '/api/cash-closures' && methodName === 'POST')
     || (url === '/api/cash-movements' && methodName === 'POST')
     || (/^\/api\/cash-movements\/\d+$/.test(url) && methodName === 'DELETE')
@@ -1019,7 +1018,7 @@ async function loadPinMode() {
   document.getElementById('pin-required').checked = status.required;
   document.getElementById('pin-mode-hint').textContent = status.required
     ? 'Cada acción protegida pide el PIN, y en el registro queda quién la hizo.'
-    : 'No se pide PIN: cualquiera que llegue a este ordenador puede anular cobros, cambiar precios y abrir el cajón. En el registro las acciones salen como «Sin identificar».';
+    : 'No se pide PIN: cualquiera que llegue a este ordenador puede anular cobros, cambiar precios y cerrar la caja. En el registro las acciones salen como «Sin identificar».';
   document.getElementById('pin-mode-hint').className = `pin-mode-hint${status.required ? '' : ' aviso'}`;
   return status;
 }
@@ -1058,7 +1057,7 @@ async function loadUsers() {
 }
 
 async function removeUser(id) {
-  const confirmed = await showDialog({ title: 'Dar de baja', message: 'Esa persona dejará de poder anular, editar precios y abrir el cajón. Su nombre seguirá en el registro de actividad.', confirmText: 'Dar de baja', danger: true });
+  const confirmed = await showDialog({ title: 'Dar de baja', message: 'Esa persona dejará de poder anular cobros, editar precios y cerrar la caja. Su nombre seguirá en el registro de actividad.', confirmText: 'Dar de baja', danger: true });
   if (!confirmed) return;
   const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
@@ -1088,6 +1087,9 @@ async function loadAudit() {
     venta_anulada: 'Anuló un cobro', venta_editada: 'Editó un cobro', producto_creado: 'Creó un producto',
     producto_editado: 'Editó un producto', producto_borrado: 'Borró un producto', stock_ajustado: 'Ajustó stock',
     entrada_mercancia: 'Registró mercancía', salida_stock: 'Sacó género del stock',
+    // La apertura del cajón ya no existe, pero se deja traducida: las cajas que
+    // vienen de versiones anteriores tienen estas líneas en su historial y sin
+    // esto se leerían como "cajon_abierto".
     cajon_abierto: 'Abrió el cajón', cierre_caja: 'Cerró la caja',
     caja_apertura: 'Abrió la caja del día', caja_entrada: 'Metió dinero en el cajón',
     caja_salida: 'Sacó dinero del cajón', caja_movimiento_borrado: 'Borró un movimiento de caja',
@@ -1219,14 +1221,6 @@ document.getElementById('toggle-extras').addEventListener('click', () => {
   document.getElementById('toggle-extras').textContent = extras.hidden ? 'Más opciones' : 'Ocultar opciones';
 });
 document.getElementById('cancel-edit-btn').addEventListener('click', cancelEdit);
-document.getElementById('open-drawer-btn').addEventListener('click', async () => {
-  const button = document.getElementById('open-drawer-btn');
-  const res = await fetch('/api/cash-drawer/open', { method: 'POST' });
-  if (!await avisarSiFalla(res, 'No se pudo abrir el cajón.')) return;
-  button.textContent = 'Caja abierta';
-  showToast('Caja abierta correctamente.', 'success');
-  setTimeout(() => { button.textContent = 'Abrir caja'; }, 1500);
-});
 document.getElementById('history-date').value = localDateKey();
 // Por defecto, exportar el mes en curso: es lo que suele pedir la gestoría.
 document.getElementById('export-from').value = `${localDateKey().slice(0, 8)}01`;

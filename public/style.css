@@ -391,8 +391,6 @@ main {
   color: var(--green-900);
 }
 
-.open-drawer-btn { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--primary-dark); font-weight: 700; }
-.open-drawer-btn:hover { background: var(--primary-soft); border-color: var(--primary); }
 
 .category-filters {
   display: flex;
