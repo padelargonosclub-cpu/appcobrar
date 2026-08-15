@@ -72,13 +72,33 @@
           <span id="cart-total">0,00 €</span>
         </div>
 
+        <!-- El cambio va a la vista, no detrás de un desplegable: es lo que hay
+             que leer con el cajón abierto y alguien esperando delante. -->
+        <div class="cash-calc">
+          <div class="quick-cash">
+            <span class="quick-cash-label">Paga con</span>
+            <button type="button" class="quick-cash-btn" data-amount="justo">Justo</button>
+            <button type="button" class="quick-cash-btn" data-amount="5">5 €</button>
+            <button type="button" class="quick-cash-btn" data-amount="10">10 €</button>
+            <button type="button" class="quick-cash-btn" data-amount="20">20 €</button>
+            <button type="button" class="quick-cash-btn" data-amount="50">50 €</button>
+          </div>
+          <div class="cash-calc-row">
+            <input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00" aria-label="Efectivo recibido">
+            <div id="change-box" class="change-box">
+              <span id="change-label">Cambio</span>
+              <strong id="cash-change">—</strong>
+            </div>
+          </div>
+        </div>
+
         <div class="pay-actions">
-          <button id="pay-cash-btn" class="pay-action cash" type="button">
+          <button id="pay-cash-btn" class="pay-action pay-cash" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
             <span class="pay-action-label">Efectivo</span>
             <span class="pay-action-total" id="pay-cash-total">0,00 €</span>
           </button>
-          <button id="pay-card-btn" class="pay-action card" type="button">
+          <button id="pay-card-btn" class="pay-action pay-card" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
             <span class="pay-action-label">Tarjeta</span>
             <span class="pay-action-total" id="pay-card-total">0,00 €</span>
@@ -90,11 +110,6 @@
 
         <button id="toggle-extras" class="toggle-extras" type="button">Más opciones</button>
         <div id="checkout-extras" class="checkout-extras" hidden>
-          <label class="field">
-            <span>Efectivo recibido (€)</span>
-            <input id="cash-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Opcional">
-          </label>
-          <div class="change-row"><span>Cambio</span><strong id="cash-change">Sin calcular</strong></div>
           <label class="field">
             <span>Nota del cobro</span>
             <input id="sale-note" type="text" maxlength="120" placeholder="Ej. Pedro, pista 2">

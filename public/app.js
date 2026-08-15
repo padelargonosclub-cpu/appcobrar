@@ -445,6 +445,7 @@ function renderCategoryFilters() {
 }
 
 function addToCart(id) {
+  limpiarDevolucion();
   const p = findProduct(id);
   const line = cart.find((c) => c.id === id);
   const used = line ? line.qty : 0;
@@ -513,10 +514,38 @@ function renderCart() {
   updateChange();
 }
 
+// Cuando se acaba de cobrar en efectivo, el cuadro deja de calcular y se queda
+// enseñando lo que hay que devolver hasta que empieza el ticket siguiente.
+let devolucionPendiente = false;
+
 function updateChange() {
+  if (devolucionPendiente) return;
+  const caja = document.getElementById('change-box');
   const input = document.getElementById('cash-received');
   const received = input.value.trim() === '' ? null : euros(input.value);
-  document.getElementById('cash-change').textContent = received == null ? 'Sin calcular' : fmt(Math.max(0, euros(received - cartTotal())));
+  const falta = received != null && received < cartTotal();
+  caja.classList.toggle('activo', received != null && !falta);
+  document.getElementById('change-label').textContent = falta ? 'Falta' : 'Cambio';
+  document.getElementById('cash-change').textContent = received == null
+    ? '—'
+    : fmt(Math.abs(euros(received - cartTotal())));
+}
+
+function mostrarDevolucion(cambio) {
+  devolucionPendiente = true;
+  const caja = document.getElementById('change-box');
+  caja.classList.remove('activo');
+  caja.classList.add('devolver');
+  document.getElementById('change-label').textContent = 'Devuelve';
+  document.getElementById('cash-change').textContent = fmt(cambio);
+}
+
+function limpiarDevolucion() {
+  if (!devolucionPendiente) return;
+  devolucionPendiente = false;
+  document.getElementById('change-box').classList.remove('devolver');
+  document.getElementById('change-label').textContent = 'Cambio';
+  updateChange();
 }
 
 async function checkout() {
@@ -561,6 +590,9 @@ async function checkout() {
   await loadProducts();
   await loadSales();
   renderCart();
+  // Cobro nuevo en efectivo con cambio: se queda a la vista y en grande, que es
+  // el momento exacto en que hace falta leerlo.
+  if (!wasEditing && method === 'efectivo' && data.change_due) mostrarDevolucion(data.change_due);
   msg.className = 'success';
   msg.textContent = wasEditing
     ? 'Venta corregida correctamente'
@@ -660,7 +692,10 @@ function editSale(id, sales) {
   // La nota del cobro se trae tal cual: si el editor saliera en blanco, guardar
   // la corrección borraría la nota que servía para cuadrar con la reserva.
   document.getElementById('sale-note').value = sale.note ?? '';
-  if (sale.amount_received != null || sale.note) {
+  limpiarDevolucion();
+  // El efectivo recibido ya se ve siempre; solo la nota vive detrás del
+  // desplegable, así que solo por ella hace falta abrirlo.
+  if (sale.note) {
     document.getElementById('checkout-extras').hidden = false;
     document.getElementById('toggle-extras').textContent = 'Ocultar opciones';
   }
@@ -677,6 +712,7 @@ function cancelEdit() {
   cart = [];
   document.getElementById('cash-received').value = '';
   document.getElementById('sale-note').value = '';
+  limpiarDevolucion();
   actualizarBotonesCobro();
   document.getElementById('cancel-edit-btn').hidden = true;
   renderCart();
@@ -1200,7 +1236,21 @@ document.getElementById('history-today').addEventListener('click', () => {
   document.getElementById('history-date').value = localDateKey();
   loadSales();
 });
-document.getElementById('cash-received').addEventListener('input', updateChange);
+document.getElementById('cash-received').addEventListener('input', () => {
+  limpiarDevolucion();
+  updateChange();
+});
+
+// Los billetes con los que paga la gente, de un toque. "Justo" es el caso más
+// repetido y deja el cambio en 0,00 en vez de en blanco.
+document.querySelectorAll('.quick-cash-btn').forEach((boton) => {
+  boton.addEventListener('click', () => {
+    limpiarDevolucion();
+    const input = document.getElementById('cash-received');
+    input.value = boton.dataset.amount === 'justo' ? cartTotal().toFixed(2) : boton.dataset.amount;
+    updateChange();
+  });
+});
 
 document.getElementById('toggle-closure').addEventListener('click', () => {
   const form = document.getElementById('closure-form');

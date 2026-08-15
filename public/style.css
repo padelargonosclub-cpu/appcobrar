@@ -169,9 +169,12 @@ main {
 
 /* ============ Vista Cobrar ============ */
 
+/* El ticket es lo que se mira de reojo mientras se cobra, así que se lleva una
+   columna ancha de verdad y toda su tipografía va un par de tallas por encima
+   del resto: se lee de pie, a un metro de la pantalla y sin gafas. */
 .sale-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) 440px;
   gap: 22px;
   align-items: start;
 }
@@ -270,26 +273,32 @@ main {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 13px 18px;
+  padding: 15px 20px;
   background: var(--green-900);
   color: #fff;
 }
-.ticket-head svg { width: 18px; height: 18px; color: var(--volt); flex: none; }
-.ticket-head h2 { font-size: 14.5px; font-weight: 700; letter-spacing: .02em; }
+.ticket-head svg { width: 21px; height: 21px; color: var(--volt); flex: none; }
+.ticket-head h2 { font-size: 17px; font-weight: 700; letter-spacing: .02em; }
 
 .ticket-lines {
-  padding: 6px 18px;
-  max-height: 44vh;
+  padding: 8px 20px;
+  max-height: 50vh;
   overflow-y: auto;
 }
-.ticket-lines::-webkit-scrollbar { width: 8px; }
+.ticket-lines::-webkit-scrollbar { width: 10px; }
 .ticket-lines::-webkit-scrollbar-thumb { background: #d3ddd5; border-radius: 8px; }
+
+/* El ticket vacío ocupa el hueco en vez de dejar un agujero blanco */
+.ticket-lines .empty-state { padding: 38px 10px; }
+.ticket-lines .empty-state svg { width: 42px; height: 42px; margin-bottom: 10px; }
+.ticket-lines .empty-state p { font-size: 17px; }
+.ticket-lines .empty-state small { font-size: 14px; }
 
 .ticket-line {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 11px 0;
+  gap: 12px;
+  padding: 14px 0;
   border-bottom: 1px dashed var(--line);
 }
 .ticket-line:last-child { border-bottom: 0; }
@@ -303,13 +312,13 @@ main {
 }
 .ticket-line-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ticket-line-unit {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -324,12 +333,12 @@ main {
   flex: none;
 }
 .qty-btn {
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
   border: 0;
   background: transparent;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--ink-soft);
   display: grid;
@@ -338,26 +347,26 @@ main {
 }
 .qty-btn:hover { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
 .qty {
-  min-width: 22px;
+  min-width: 30px;
   text-align: center;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
 }
 
 .line-total {
-  min-width: 68px;
+  min-width: 86px;
   text-align: right;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
 }
 
 .ticket-foot {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 18px 18px;
+  gap: 13px;
+  padding: 16px 20px 20px;
   border-top: 1px dashed var(--line);
   background: #fbfdfb;
 }
@@ -368,14 +377,14 @@ main {
   align-items: baseline;
 }
 .total-row span:first-child {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .09em;
   color: var(--muted);
 }
 #cart-total {
-  font-size: 30px;
+  font-size: 38px;
   font-weight: 800;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
@@ -433,9 +442,6 @@ main {
 }
 .cash-payment { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
 .cash-payment[hidden] { display: none; }
-.change-row { display: flex; flex-direction: column; align-items: flex-end; padding-bottom: 10px; min-width: 90px; }
-.change-row span { font-size: 11.5px; font-weight: 700; color: var(--muted); }
-.change-row strong { color: var(--primary-dark); font-size: 18px; }
 
 .checkout-btn {
   display: flex;
@@ -800,8 +806,8 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 15px 10px;
+  gap: 4px;
+  padding: 19px 10px;
   border: 0;
   border-radius: var(--radius-sm);
   color: #fff;
@@ -810,13 +816,101 @@ button:focus-visible {
   cursor: pointer;
   transition: transform .06s ease, filter .12s ease;
 }
-.pay-action svg { width: 21px; height: 21px; }
-.pay-action-label { font-size: 13.5px; }
-.pay-action-total { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-.pay-action.cash { background: var(--primary-dark); }
-.pay-action.card { background: var(--green-900); }
+.pay-action svg { width: 25px; height: 25px; }
+.pay-action-label { font-size: 15px; }
+.pay-action-total { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+/* Ojo con los nombres: el botón de tarjeta llevaba la clase `.card`, que es la
+   de las tarjetas-panel de Ajustes, y se tragaba su margen y su sombra. Por eso
+   los dos botones de cobro no medían igual. */
+.pay-action.pay-cash { background: var(--primary-dark); }
+.pay-action.pay-card { background: var(--green-900); }
 .pay-action:hover { filter: brightness(1.08); }
 .pay-action:active { transform: translateY(1px); }
+
+/* — Efectivo recibido y cambio — */
+
+.cash-calc {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--line-soft);
+}
+.quick-cash { display: flex; align-items: center; gap: 6px; }
+.quick-cash-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  flex: none;
+}
+.quick-cash-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--primary-dark);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.quick-cash-btn:hover { border-color: var(--primary); background: var(--primary-soft); }
+.quick-cash-btn:active { transform: translateY(1px); }
+
+.cash-calc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 9px; }
+#cash-received {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+#cash-received:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+
+.change-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition: background .14s ease, border-color .14s ease;
+}
+.change-box span {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.change-box strong {
+  font-size: 31px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.change-box.activo { border-color: var(--primary); background: var(--primary-soft); }
+.change-box.activo strong { color: var(--primary-dark); }
+/* Cobro hecho: lo que hay que devolver se queda en grande y en negativo hasta
+   que empieza el ticket siguiente. */
+.change-box.devolver { border-color: var(--green-900); background: var(--green-900); }
+.change-box.devolver span { color: rgba(255, 255, 255, .72); }
+.change-box.devolver strong { color: #fff; }
 
 .toggle-extras { width: 100%; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px; cursor: pointer; }
 .toggle-extras:hover { color: var(--primary-dark); }
@@ -916,7 +1010,7 @@ button:focus-visible {
 /* ============ Responsive ============ */
 
 @media (max-width: 1100px) {
-  .sale-layout { grid-template-columns: minmax(0, 1fr) 330px; }
+  .sale-layout { grid-template-columns: minmax(0, 1fr) 380px; }
 }
 
 @media (max-width: 940px) {
