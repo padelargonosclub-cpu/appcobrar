@@ -814,18 +814,68 @@ async function deshacerPartido(id) {
   showToast(`Partido devuelto. A ${bono.holder_name} le quedan ${data.remaining}.`, 'success');
 }
 
+function precioDelBono() {
+  return euros(document.getElementById('bono-price').value);
+}
+
+// Lo que se le ha dado al cobrar el bono, o null si no se ha escrito nada. Con
+// tarjeta no hay efectivo que contar, así que ni se mira.
+function recibidoPorElBono() {
+  if (bonoMethod !== 'efectivo') return null;
+  const texto = document.getElementById('bono-received').value.trim();
+  return texto === '' ? null : euros(texto);
+}
+
+// El mismo cálculo que en el cobro de barra: mientras lo que dan no cubra el
+// precio, se dice cuánto FALTA en vez de inventarse un cambio negativo.
+function actualizarCambioBono() {
+  const caja = document.getElementById('bono-change-box');
+  const recibido = recibidoPorElBono();
+  const precio = precioDelBono();
+  const falta = recibido != null && recibido < precio;
+  caja.classList.toggle('activo', recibido != null && !falta);
+  document.getElementById('bono-change-label').textContent = falta ? 'Falta' : 'Cambio';
+  document.getElementById('bono-change').textContent = recibido == null
+    ? '—'
+    : fmt(Math.abs(euros(recibido - precio)));
+}
+
+// Con tarjeta no se pregunta con cuánto paga: lo cobra el datáfono entero.
+function actualizarMetodoBono() {
+  const efectivo = bonoMethod === 'efectivo';
+  document.getElementById('bono-pay-efectivo').classList.toggle('active', efectivo);
+  document.getElementById('bono-pay-tarjeta').classList.toggle('active', !efectivo);
+  document.getElementById('bono-cash').hidden = !efectivo;
+  if (!efectivo) document.getElementById('bono-received').value = '';
+  actualizarCambioBono();
+}
+
 async function venderBono() {
   const holderName = document.getElementById('bono-name').value.trim();
   const totalUses = Number(document.getElementById('bono-uses').value);
-  const price = Number(document.getElementById('bono-price').value);
+  const price = precioDelBono();
   if (!holderName) {
     showToast('El bono tiene que ir a nombre de alguien.', 'error');
+    document.getElementById('bono-name').focus();
+    return;
+  }
+  const recibido = recibidoPorElBono();
+  if (recibido != null && recibido < price) {
+    showToast('El efectivo recibido no cubre el precio del bono.', 'error');
+    document.getElementById('bono-received').focus();
     return;
   }
   const res = await fetch('/api/bonos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ holderName, totalUses, price, method: bonoMethod, note: document.getElementById('bono-note').value.trim() }),
+    body: JSON.stringify({
+      holderName,
+      totalUses,
+      price,
+      method: bonoMethod,
+      amountReceived: recibido,
+      note: document.getElementById('bono-note').value.trim(),
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -834,10 +884,17 @@ async function venderBono() {
   }
   document.getElementById('bono-name').value = '';
   document.getElementById('bono-note').value = '';
+  document.getElementById('bono-received').value = '';
   document.getElementById('bono-form').hidden = true;
   document.getElementById('toggle-bono-form').textContent = 'Vender bono';
+  actualizarCambioBono();
   await Promise.all([loadBonos(), loadSales()]);
-  showToast(`Bono de ${data.holder_name} cobrado: ${fmt(data.price)} por ${data.total_uses} partidos.`, 'success');
+  // El cambio va en el aviso y el primero: es lo único que queda por hacer con
+  // el cliente delante, y si se pierde entre el resto del texto, no se lee.
+  const cambio = data.change_due;
+  showToast(cambio > 0
+    ? `Devuelve ${fmt(cambio)}. Bono de ${data.holder_name}: ${fmt(data.price)} por ${data.total_uses} partidos.`
+    : `Bono de ${data.holder_name} cobrado: ${fmt(data.price)} por ${data.total_uses} partidos.`, 'success');
 }
 
 // ---------- Cierre de caja ----------
@@ -1285,21 +1342,28 @@ document.getElementById('toggle-bono-form').addEventListener('click', () => {
   const form = document.getElementById('bono-form');
   form.hidden = !form.hidden;
   document.getElementById('toggle-bono-form').textContent = form.hidden ? 'Vender bono' : 'Cerrar';
-  if (!form.hidden) document.getElementById('bono-name').focus();
+  // Cada bono se cobra desde cero: el efectivo del anterior no puede seguir ahí.
+  if (!form.hidden) {
+    document.getElementById('bono-received').value = '';
+    actualizarMetodoBono();
+    document.getElementById('bono-name').focus();
+  }
 });
 document.getElementById('save-bono').addEventListener('click', venderBono);
 document.getElementById('bono-search').addEventListener('input', renderBonos);
 document.getElementById('bono-show-spent').addEventListener('change', renderBonos);
-document.getElementById('bono-pay-efectivo').addEventListener('click', function () {
+document.getElementById('bono-pay-efectivo').addEventListener('click', () => {
   bonoMethod = 'efectivo';
-  this.classList.add('active');
-  document.getElementById('bono-pay-tarjeta').classList.remove('active');
+  actualizarMetodoBono();
 });
-document.getElementById('bono-pay-tarjeta').addEventListener('click', function () {
+document.getElementById('bono-pay-tarjeta').addEventListener('click', () => {
   bonoMethod = 'tarjeta';
-  this.classList.add('active');
-  document.getElementById('bono-pay-efectivo').classList.remove('active');
+  actualizarMetodoBono();
 });
+document.getElementById('bono-received').addEventListener('input', actualizarCambioBono);
+// El precio también: cambiarlo con el efectivo ya escrito tiene que recalcular
+// el cambio, no dejar en pantalla el de antes.
+document.getElementById('bono-price').addEventListener('input', actualizarCambioBono);
 document.getElementById('pin-required').addEventListener('change', (event) => togglePinMode(event.target.checked));
 
 document.getElementById('export-csv').addEventListener('click', () => {

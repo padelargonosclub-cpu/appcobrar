@@ -1,7 +1,7 @@
 {
   "name": "pos-club-padel",
   "author": "Pádel Argonos",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "description": "Demo de punto de venta interno para el club de padel",
   "main": "electron-main.js",
@@ -27,11 +27,33 @@
     "appId": "es.argonos.padel.caja",
     "productName": "Caja Pádel Argonos",
     "asar": true,
-    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
-    "files": ["electron-main.js", "server.js", "public/**/*", "package.json", "node_modules/**/*"],
-    "extraResources": [{ "from": "initial-pos.db", "to": "initial-pos.db" }],
-    "directories": { "output": "dist" },
-    "publish": [{ "provider": "github", "owner": "padelargonosclub-cpu", "repo": "appcobrar", "releaseType": "release" }],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "files": [
+      "electron-main.js",
+      "server.js",
+      "public/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "initial-pos.db",
+        "to": "initial-pos.db"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "padelargonosclub-cpu",
+        "repo": "appcobrar",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "public/assets/argonos-icon-512.png",

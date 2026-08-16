@@ -4,6 +4,16 @@ Punto de venta interno del club: catálogo con stock, cobros en efectivo o
 tarjeta, historial por día y arqueo de caja. Backend en Node.js + Express con
 base de datos SQLite, e interfaz web servida desde `public/`.
 
+> **Esta caja ya no es la que se usa en la barra.** Desde agosto de 2026 el club
+> cobra con la tablet (repositorio `appcobrar-tablet`, una Galaxy Tab S7+). Este
+> programa se queda instalado y apagado como **respaldo**: el día que la tablet
+> se rompa, se moje o desaparezca, se enciende el ordenador, se le mete el
+> `pos.db` que haya en Drive y se sigue cobrando en diez minutos.
+>
+> Por eso se mantiene al día: los arreglos de cálculo que entran en la tablet
+> entran también aquí, y las pruebas tienen que seguir pasando. Un respaldo que
+> lleva un año sin tocarse no es un respaldo.
+
 El cajón se abre a mano, con su llave. La aplicación no lo controla: hubo un
 plan para dispararlo desde un ESP32 y se ha retirado, porque un botón que no
 hacía nada solo servía para recordar que estaba pendiente. Si algún día se
@@ -116,6 +126,9 @@ El detalle que importa para que las cuentas cuadren:
 
 - **Vender el bono es un cobro**: entra en la caja del día, en el desglose de
   efectivo/tarjeta, en el arqueo y en la exportación, como cualquier otra venta.
+  Y se cobra como tal: si es en efectivo, se escribe con cuánto paga el socio y
+  la pantalla dice qué hay que devolverle. Un bono de 55 € se paga a menudo con
+  60, y antes ese cambio no se calculaba en ninguna parte.
 - **Gastar un partido no mueve dinero**, porque ya se pagó al comprarlo. Si cada
   partido consumido sumara al total del día, el arqueo dejaría de cuadrar con el
   efectivo que hay en el cajón.
@@ -317,8 +330,10 @@ así que el club empieza con el historial vacío.
 
 - Firmar el instalador para quitar el aviso de "editor desconocido".
 - Copias de seguridad fuera del PC del club: hoy la base de datos y sus copias
-  viven en el mismo equipo, así que un disco roto se lleva las dos cosas.
-- Impresión de tickets.
+  viven en el mismo equipo, así que un disco roto se lleva las dos cosas. Como
+  respaldo esto importa menos que antes —los datos buenos están en la tablet y
+  en Drive—, pero si algún día se vuelve a cobrar aquí, vuelve a importar.
+- Impresión de tickets. El club no emite tickets hoy, así que no corre prisa.
 - Confirmar con la gestoría si al emitir tickets al cliente aplica el reglamento
   de sistemas de facturación (Veri\*Factu), que no permite editar ni borrar
   registros como se hace ahora.

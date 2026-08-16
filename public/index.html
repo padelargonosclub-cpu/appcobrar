@@ -317,6 +317,16 @@
           <button class="pay-btn active" id="bono-pay-efectivo" type="button">Efectivo</button>
           <button class="pay-btn" id="bono-pay-tarjeta" type="button">Tarjeta</button>
         </div>
+        <!-- Con cuánto paga, para saber qué hay que devolverle. Un bono de 55 €
+             se paga a menudo con 60 y antes esto no se preguntaba en ninguna
+             parte: el cambio se calculaba de cabeza. Solo sale con efectivo. -->
+        <div id="bono-cash" class="cash-calc-row bono-cash">
+          <input id="bono-received" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Con cuánto paga" aria-label="Efectivo recibido por el bono">
+          <div id="bono-change-box" class="change-box">
+            <span id="bono-change-label">Cambio</span>
+            <strong id="bono-change">—</strong>
+          </div>
+        </div>
         <button id="save-bono" class="btn-primary" type="button">Cobrar bono</button>
       </div>
 

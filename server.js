@@ -927,7 +927,9 @@ app.post('/api/bonos', (req, res) => {
 
   try {
     const id = crear();
-    res.status(201).json(bonoConUsos(id));
+    // Junto al bono va cómo se ha cobrado: lo que hay que devolver no está en
+    // el bono sino en el cobro, y es lo que la pantalla tiene que decir.
+    res.status(201).json({ ...bonoConUsos(id), total: price, method, amount_received: received, change_due: change });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

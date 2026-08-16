@@ -744,6 +744,9 @@ button:focus-visible {
 .bono-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .bono-form .bono-pay { grid-column: span 2; }
 .bono-pay { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* El efectivo recibido va en la misma fila que el método al que pertenece. */
+.bono-form .bono-cash { grid-column: span 2; }
+.bono-cash[hidden] { display: none; }
 
 .bono-search { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
 .bono-search input[type="search"] {
@@ -1036,7 +1039,7 @@ button:focus-visible {
   .stock-entry-row small { display: none; }
 
   .bono-form { grid-template-columns: 1fr 1fr; }
-  .bono-form .field:first-child, .bono-form .field:nth-child(4), .bono-form .bono-pay, .bono-form .btn-primary { grid-column: 1 / -1; }
+  .bono-form .field:first-child, .bono-form .field:nth-child(4), .bono-form .bono-pay, .bono-form .bono-cash, .bono-form .btn-primary { grid-column: 1 / -1; }
   .bono-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
   .bono-bar, .bono-actions { grid-column: 1 / -1; }
   .bono-actions .btn-primary { flex: 1; }

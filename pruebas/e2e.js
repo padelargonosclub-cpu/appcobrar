@@ -244,6 +244,50 @@ async function main() {
   comprobar('se puede corregir el nombre', renombrado.cuerpo.holder_name === 'Pedro G. Ruiz');
   comprobar('sin perder los partidos gastados', renombrado.cuerpo.used === 1, `${renombrado.cuerpo.used}`);
 
+  // Un bono de 55 € se paga a menudo con 60. La pantalla no preguntaba con
+  // cuánto pagaban, así que el cambio no se calculaba en ninguna parte y quien
+  // cobraba lo hacia de cabeza. Estas pruebas fijan que la caja lo devuelva.
+  const conCambio = await api('/api/bonos', {
+    method: 'POST',
+    body: { holderName: 'Marta Paga', totalUses: 10, price: 55, method: 'efectivo', amountReceived: 60 },
+  });
+  comprobar('el bono dice cuánto hay que devolver', conCambio.cuerpo.change_due === 5, `dio ${conCambio.cuerpo.change_due}`);
+  comprobar('y con cuánto han pagado', conCambio.cuerpo.amount_received === 60, `dio ${conCambio.cuerpo.amount_received}`);
+  comprobar('y cuánto se ha cobrado', conCambio.cuerpo.total === 55, `dio ${conCambio.cuerpo.total}`);
+  const ventaConCambio = (await api(`/api/sales/${conCambio.cuerpo.sale_id}`)).cuerpo;
+  comprobar('el cambio queda guardado en la venta, no solo en pantalla',
+    ventaConCambio.change_due === 5 && ventaConCambio.amount_received === 60,
+    `recibido ${ventaConCambio.amount_received}, cambio ${ventaConCambio.change_due}`);
+
+  const bonoJusto = await api('/api/bonos', {
+    method: 'POST',
+    body: { holderName: 'Justo Justo', totalUses: 10, price: 55, method: 'efectivo', amountReceived: 55 },
+  });
+  comprobar('pagando justo no hay nada que devolver', bonoJusto.cuerpo.change_due === 0, `dio ${bonoJusto.cuerpo.change_due}`);
+
+  const bonoCorrido = await api('/api/bonos', {
+    method: 'POST',
+    body: { holderName: 'No Llega', totalUses: 10, price: 55, method: 'efectivo', amountReceived: 50 },
+  });
+  comprobar('no deja cobrar con menos dinero del que vale', bonoCorrido.status === 400, `dio ${bonoCorrido.status}`);
+
+  // Tres cafés de 1,30 valen 3.9000000000000004 en coma flotante. El mismo
+  // redondeo que las ventas tiene que valer para los bonos.
+  const bonoDecimal = await api('/api/bonos', {
+    method: 'POST',
+    body: { holderName: 'Decimales', totalUses: 3, price: 1.3 * 3, method: 'efectivo', amountReceived: 3.9 },
+  });
+  comprobar('pagar el importe exacto con decimales no se rechaza', bonoDecimal.status === 201, `dio ${bonoDecimal.status}: ${bonoDecimal.texto}`);
+  comprobar('y no inventa un céntimo de cambio', bonoDecimal.cuerpo.change_due === 0, `dio ${bonoDecimal.cuerpo.change_due}`);
+
+  const bonoTarjeta = await api('/api/bonos', {
+    method: 'POST',
+    body: { holderName: 'Con Tarjeta', totalUses: 10, price: 55, method: 'tarjeta', amountReceived: 60 },
+  });
+  comprobar('con tarjeta no se cuenta efectivo ni cambio',
+    bonoTarjeta.cuerpo.amount_received === null && bonoTarjeta.cuerpo.change_due === null,
+    `recibido ${bonoTarjeta.cuerpo.amount_received}, cambio ${bonoTarjeta.cuerpo.change_due}`);
+
   console.log('\n# Orden de las fichas');
   const orden0 = (await api('/api/products')).cuerpo;
   comprobar('cada producto nace con su posicion', orden0.every((p) => p.position > 0), JSON.stringify(orden0.map((p) => p.position)));
