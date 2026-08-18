@@ -100,12 +100,142 @@ CREATE TABLE IF NOT EXISTS cash_closures (
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
+
+-- ---------- La escuela ----------
+--
+-- Las cuatro tablas de aquí abajo son las primeras de la caja con datos
+-- personales de verdad, y encima de críos. Todo lo anterior eran productos,
+-- importes y fechas; a partir de aquí hay nombres, teléfonos de familias y
+-- permisos de imagen de menores. Eso cambia las reglas: cada columna que se
+-- añada es una columna que habría que entregar si esa persona pregunta qué se
+-- tiene suyo, y una más que explicar el día que la tablet se pierda. Lo que no
+-- se guarda no se puede perder ni hay que borrarlo luego.
+--
+-- La escuela NO toca dinero. Cobrar una clase sigue siendo lo de siempre: un
+-- producto del catálogo o un bono. Así el arqueo, el CSV de la gestoría y las
+-- anulaciones se quedan exactamente como estaban, y nada contable apunta aquí
+-- dentro, que es justo lo que permite borrar una ficha de verdad cuando la
+-- familia lo pide.
+
+CREATE TABLE IF NOT EXISTS students (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  -- El apellido NO es obligatorio: en el club hay gente que es "Chus" y punto, y
+  -- obligarlo acaba con un "." escrito para poder pasar de pantalla.
+  surname TEXT,
+  -- Un solo teléfono, el útil: al que se llama si se suspende la clase. En un
+  -- crío ese número es el de su madre, no el suyo, así que guardar dos era
+  -- guardar el mismo dato dos veces.
+  phone TEXT,
+  -- Solo el AÑO, y solo si es menor. Lo único que decide es quién puede dar el
+  -- permiso de imagen: por debajo de 14 años no lo da el crío (art. 7 LOPDGDD).
+  -- La fecha completa no aporta nada a eso y es un dato personal más.
+  birth_year INTEGER,
+  guardian_name TEXT,                 -- padre, madre o tutor. NULL en los adultos
+  -- 0 = se fue de la escuela. Baja lógica, como en users: dejar de venir no es
+  -- pedir que te borren, y una baja por error se deshace sin volver a teclear.
+  -- Para borrar de verdad está el derecho de supresión, que es otra cosa.
+  active INTEGER NOT NULL DEFAULT 1,
+  -- Nivel, mano, si viene con su hermana. NO es sitio para salud ni lesiones:
+  -- eso es dato del art. 9 del RGPD y esta caja no está hecha para guardarlo.
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- El permiso de imagen NO es una casilla. Una casilla que se marca y se desmarca
+-- no deja constancia de nada: no dice quién lo dio, ni cuándo, ni cómo consta, y
+-- al desmarcarla desaparece la prueba de que un día se dio. Si en marzo se
+-- publicó una foto con permiso y en abril la familia lo retira, con una casilla
+-- el club no puede demostrar que en marzo lo tenía, y demostrarlo es
+-- precisamente lo que exige el art. 7.1 del RGPD.
+--
+-- Por eso es una tabla de apuntes que SOLO CRECE: dar el permiso es una fila y
+-- quitarlo es OTRA fila. Nunca se hace UPDATE ni DELETE sobre un apunte. El
+-- estado de hoy es el último apunte de cada finalidad.
+CREATE TABLE IF NOT EXISTS student_consents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Sin REFERENCES y sin nombre congelado, al revés que el resto del esquema:
+  -- la ficha SÍ se puede borrar de verdad, y congelar aquí el nombre dejaría
+  -- vivo justo lo que se acaba de borrar allí.
+  student_id INTEGER NOT NULL,
+  -- Una sola finalidad hoy: fotos y vídeos de la escuela. La columna existe
+  -- desde el principio para poder separar "dentro del club" e "internet" el día
+  -- que haga falta, sin tocar la base y sin volver a preguntar a nadie.
+  purpose TEXT NOT NULL DEFAULT 'promocion',
+  granted INTEGER NOT NULL DEFAULT 0, -- 1 lo da, 0 lo quita
+  signer_role TEXT NOT NULL DEFAULT 'alumno', -- 'alumno' o 'tutor'; por debajo de 14 solo vale 'tutor'
+  -- Quién lo dio, con su nombre. En un crío NO es el suyo: es el de su padre,
+  -- madre o tutor.
+  signer_name TEXT NOT NULL,
+  -- 'papel' si hay hoja firmada guardada en el club, 'verbal' si no. Por defecto
+  -- 'verbal' porque lo honesto es que, si nadie dice nada, lo que consta es la
+  -- palabra del club y no un papel que no existe.
+  evidence TEXT NOT NULL DEFAULT 'verbal',
+  user_id INTEGER,                    -- quién de la caja lo apuntó...
+  user_name TEXT NOT NULL,            -- ...con el nombre congelado, como audit_log: el apunte tiene que sostenerse aunque esa persona se dé de baja
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- El horario de la escuela es una rejilla semanal fija, no una agenda. Lo que
+-- hace falta saber es "los martes a las 18:00 doy clase en la 2 y me caben 4".
+-- Guardar una fila por cada día concreto multiplicaría por cuarenta los datos,
+-- obligaría a mantener un calendario al día, y no contesta mejor a la única
+-- pregunta que se hace de verdad: qué huecos quedan esta semana. La semana de
+-- Navidad se sabe sin apuntarla.
+CREATE TABLE IF NOT EXISTS lessons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- 1 = lunes ... 7 = domingo. OJO: NO es el getDay() de JavaScript, que empieza
+  -- en domingo. Copiarlo mal pone las clases del lunes en el domingo y no da
+  -- ningún error: se ve raro y ya.
+  weekday INTEGER NOT NULL,
+  -- 'HH:MM' de 24 horas. Texto, como las fechas del resto del esquema: se ordena
+  -- solo y se lee igual en las dos cajas.
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  court TEXT,                         -- "Pista 2". Texto y no id: las pistas no cambian, y el alquiler ya está modelado como producto del catálogo
+  -- Lo que convierte la rejilla en útil: sin esto se sabe "aquí hay 3" pero no
+  -- "aquí caben 4", que es lo que se pregunta cuando llama una madre.
+  capacity INTEGER NOT NULL DEFAULT 4,
+  -- Cómo llama el club a ese grupo: "Infantil A", "Adultos iniciación". Es lo que
+  -- se lee en la celda de la rejilla, y lo que permite contestar "me llama una
+  -- madre con un crío de diez años, ¿dónde lo meto?" sin abrir la clase ni
+  -- teclear el PIN ni leer los nombres de los que ya están dentro. Sin esto,
+  -- "iniciacion 3/4" pueden ser cuatro críos de nueve años o cuatro señores de
+  -- cincuenta y cinco que empiezan.
+  label TEXT,
+  level TEXT NOT NULL DEFAULT 'iniciacion', -- en minúsculas y sin tildes, como method = 'efectivo'
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- Quién está en qué clase. Es lo que convierte la lista de alumnos en un horario
+-- útil, y es a la vez el dato más delicado del conjunto: dice dónde está un crío
+-- concreto los martes a las seis. Por eso no guarda nada más que el enlace, por
+-- eso desaparece con la ficha, y por eso la rejilla que se mira en la barra no
+-- enseña ni un nombre.
+CREATE TABLE IF NOT EXISTS lesson_students (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lesson_id INTEGER NOT NULL,
+  -- Sin REFERENCES por lo mismo que student_consents: la ficha se puede borrar
+  -- de verdad y esto se va con ella, en la misma transacción.
+  student_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  -- Apuntar dos veces al mismo siempre es un doble toque, nunca una intención.
+  -- Va desde el CREATE porque un UNIQUE no se puede añadir después con ALTER.
+  UNIQUE (lesson_id, student_id)
+);
+
 -- Índices por las columnas que se consultan de continuo: el historial pide las
 -- líneas de 200 cobros uno a uno, y sin índice cada una recorre la tabla entera.
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_bono_uses_bono ON bono_uses(bono_id);
 CREATE INDEX IF NOT EXISTS idx_cash_movements_day ON cash_movements(day);
+-- La rejilla cuenta los apuntados de cada franja y la ficha pide las clases de
+-- un alumno cada vez que se abre.
+CREATE INDEX IF NOT EXISTS idx_student_consents_student ON student_consents(student_id);
+CREATE INDEX IF NOT EXISTS idx_lesson_students_lesson ON lesson_students(lesson_id);
+CREATE INDEX IF NOT EXISTS idx_lesson_students_student ON lesson_students(student_id);
 `);
 
 // Migraciones compatibles con bases de datos creadas por versiones anteriores.
