@@ -132,14 +132,64 @@ CREATE TABLE IF NOT EXISTS students (
   -- La fecha completa no aporta nada a eso y es un dato personal más.
   birth_year INTEGER,
   guardian_name TEXT,                 -- padre, madre o tutor. NULL en los adultos
-  -- 0 = se fue de la escuela. Baja lógica, como en users: dejar de venir no es
-  -- pedir que te borren, y una baja por error se deshace sin volver a teclear.
-  -- Para borrar de verdad está el derecho de supresión, que es otra cosa.
-  active INTEGER NOT NULL DEFAULT 1,
-  -- Nivel, mano, si viene con su hermana. NO es sitio para salud ni lesiones:
-  -- eso es dato del art. 9 del RGPD y esta caja no está hecha para guardarlo.
+  -- Tres estados de lo mismo, y por eso una columna y no dos banderas:
+  --   'alta'      — le das clase
+  --   'pendiente' — te ha preguntado por clases y todavía no le has colocado
+  --   'baja'      — se fue de la escuela
+  -- Los pendientes son gente a la que reclutar, no gente de baja: tienen su
+  -- horario apuntado justo para poder buscarlos cuando se abre un hueco. Y una
+  -- baja no borra nada, que para eso está el derecho de supresión aparte.
+  status TEXT NOT NULL DEFAULT 'alta',
+  -- Por dónde va. Se pregunta al darle de alta y sirve para dos cosas: saber en
+  -- qué grupo encaja y poder filtrar la lista cuando se busca a quién meter en
+  -- una clase que se ha quedado a medias.
+  level TEXT NOT NULL DEFAULT 'iniciacion',
+  -- Texto libre que HOY no usa ninguna pantalla, y es a propósito: lo que se
+  -- escribía aquí era justo lo que no debía guardarse (una lesión, un asma) o
+  -- lo que ahora tiene su sitio (el nivel, cuándo puede venir). Se deja la
+  -- columna porque quitarla obligaría a rehacer la tabla en las bases que ya
+  -- existen, y las dos cajas tienen que crear exactamente el mismo esquema.
   note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- Cuándo puede venir cada uno. Es lo que convierte una lista de nombres en algo
+-- con lo que se puede trabajar: cuando se abre un hueco el martes por la tarde,
+-- la pregunta no es "¿a quién le apetece?" sino "¿quién PUEDE el martes por la
+-- tarde?", y sin esto hay que llamar a doce personas para encontrar a una.
+--
+-- Por franjas y no por horas exactas a propósito. Nadie dice "puedo los martes
+-- de 18:00 a 19:30": dicen "martes o jueves por la tarde". Guardar una hora
+-- exacta sería inventarse una precisión que la familia no ha dado, y encima
+-- haría fallar la búsqueda por diez minutos de diferencia.
+CREATE TABLE IF NOT EXISTS student_availability (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL,
+  weekday INTEGER NOT NULL,           -- 1 = lunes ... 7 = domingo, igual que lessons
+  band TEXT NOT NULL,                 -- 'manana' (hasta las 14), 'tarde' (14 a 20), 'noche' (a partir de las 20)
+  UNIQUE (student_id, weekday, band)  -- marcar dos veces la misma casilla es un doble toque
+);
+
+-- Quién ha pagado el mes. Una fila por alumno y mes: o está o no está, que es
+-- exactamente la pregunta que se hace ("¿este ha pagado septiembre?").
+--
+-- OJO CON LO QUE ESTO NO HACE: no toca la caja del día. Apuntar aquí que
+-- alguien ha pagado 55 € en efectivo NO mete esos 55 € en el arqueo, así que si
+-- el dinero ha entrado en el cajón hay que meterlo también por la pestaña Caja
+-- o el recuento no cuadrará. Se ha dejado así a propósito para no tocar el
+-- arqueo, el CSV de la gestoría ni las anulaciones, que llevan meses cuadrando;
+-- las cuotas salen en su propio CSV.
+CREATE TABLE IF NOT EXISTS student_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL,
+  month TEXT NOT NULL,                -- 'AAAA-MM'. Texto y ordenable, como las fechas del resto del esquema
+  amount REAL NOT NULL,
+  method TEXT NOT NULL,               -- 'efectivo' | 'tarjeta' | 'transferencia'
+  note TEXT,
+  user_id INTEGER,                    -- quién lo apuntó...
+  user_name TEXT NOT NULL,            -- ...con el nombre congelado, como audit_log
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (student_id, month)          -- un mes se paga una vez; corregirlo es cambiar la fila, no añadir otra
 );
 
 -- El permiso de imagen NO es una casilla. Una casilla que se marca y se desmarca
@@ -234,6 +284,9 @@ CREATE INDEX IF NOT EXISTS idx_cash_movements_day ON cash_movements(day);
 -- La rejilla cuenta los apuntados de cada franja y la ficha pide las clases de
 -- un alumno cada vez que se abre.
 CREATE INDEX IF NOT EXISTS idx_student_consents_student ON student_consents(student_id);
+CREATE INDEX IF NOT EXISTS idx_student_availability_student ON student_availability(student_id);
+CREATE INDEX IF NOT EXISTS idx_student_payments_student ON student_payments(student_id);
+CREATE INDEX IF NOT EXISTS idx_student_payments_month ON student_payments(month);
 CREATE INDEX IF NOT EXISTS idx_lesson_students_lesson ON lesson_students(lesson_id);
 CREATE INDEX IF NOT EXISTS idx_lesson_students_student ON lesson_students(student_id);
 `);
@@ -264,6 +317,20 @@ if (!saleColumns.includes('change_due')) db.exec('ALTER TABLE sales ADD COLUMN c
 if (!saleColumns.includes('voided_at')) db.exec('ALTER TABLE sales ADD COLUMN voided_at TEXT');
 if (!saleColumns.includes('void_reason')) db.exec('ALTER TABLE sales ADD COLUMN void_reason TEXT');
 if (!saleColumns.includes('note')) db.exec('ALTER TABLE sales ADD COLUMN note TEXT');
+
+// La primera versión de la escuela guardaba el alta y la baja en una columna
+// `active` de sí o no. Al aparecer los pendientes —gente que ha preguntado por
+// clases y todavía no tiene sitio— pasaron a ser tres estados de lo mismo, y
+// tres estados no caben en un booleano sin acabar con dos banderas que se
+// contradicen. Las bases anteriores se traen con su `active` traducido.
+const studentColumns = db.prepare('PRAGMA table_info(students)').all().map((c) => c.name);
+if (!studentColumns.includes('status')) {
+  db.exec("ALTER TABLE students ADD COLUMN status TEXT NOT NULL DEFAULT 'alta'");
+  if (studentColumns.includes('active')) db.prepare("UPDATE students SET status = 'baja' WHERE active = 0").run();
+}
+if (!studentColumns.includes('level')) {
+  db.exec("ALTER TABLE students ADD COLUMN level TEXT NOT NULL DEFAULT 'iniciacion'");
+}
 
 // El dinero se redondea a céntimos en cuanto se calcula. En coma flotante,
 // 1,30 € × 3 da 3.9000000000000004: la pantalla enseña 3,90 € y, si el cajero
